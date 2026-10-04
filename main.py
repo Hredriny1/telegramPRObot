@@ -17,17 +17,17 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 OWNER_ID_RAW = os.getenv("OWNER_ID", "").strip()
 
 if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN не установлен. Установите переменную окружения BOT_TOKEN.")
+    logger.error("❌ BOT_TOKEN не установлен.")
     raise SystemExit(1)
 
 if not OWNER_ID_RAW:
-    logger.error("❌ OWNER_ID не установлен. Установите переменную окружения OWNER_ID.")
+    logger.error("❌ OWNER_ID не установлен.")
     raise SystemExit(1)
 
 try:
     OWNER_ID = int(OWNER_ID_RAW)
 except ValueError:
-    logger.error("❌ OWNER_ID должен быть целым числом. Проверьте переменную окружения OWNER_ID.")
+    logger.error("❌ OWNER_ID должен быть целым числом.")
     raise SystemExit(1)
 
 logger.info("=" * 70)
@@ -38,30 +38,25 @@ logger.info("=" * 70)
 
 
 async def handle_business_message(message: Message, bot: Bot) -> None:
-    logger.info("🔍 handle_business_message вызван для message_id=%s", message.message_id)
-    logger.info("   from_user.id=%s (ожидается %s)", 
-                message.from_user.id if message.from_user else "None", OWNER_ID)
-    logger.info("   chat.id=%s, chat.type=%s", message.chat.id, message.chat.type)
-    logger.info("   business_connection_id=%s", message.business_connection_id)
-    logger.info("   text=%r", (message.text or "")[:100])
-
+    logger.info("🔍 handle_business_message для message_id=%s", message.message_id)
+    
     if message.from_user is None:
         logger.warning("⚠️ from_user is None, пропускаю")
         return
 
     if message.from_user.id != OWNER_ID:
-        logger.warning("⚠️ Сообщение от %s, а ожидается %s. Пропускаю.",
+        logger.warning("⚠️ Сообщение от %s, ожидается %s. Пропускаю.",
                        message.from_user.id, OWNER_ID)
         return
 
     text = message.text or ""
     if not text.startswith(".me"):
-        logger.info("ℹ️ Сообщение не начинается с .me: %r", text[:50])
+        logger.info("ℹ️ Не команда .me: %r", text[:50])
         return
 
     business_connection_id = message.business_connection_id
     if not business_connection_id:
-        logger.warning("⚠️ У сообщения нет business_connection_id, обработка невозможна.")
+        logger.warning("⚠️ Нет business_connection_id, пропускаю.")
         return
 
     try:
@@ -69,33 +64,30 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
             business_connection_id=business_connection_id,
             message_ids=[message.message_id],
         )
-        logger.info("✅ Удалено исходное сообщение .me, message_id=%s", message.message_id)
+        logger.info("✅ Удалено сообщение .me, message_id=%s", message.message_id)
     except Exception as e:
-        logger.warning("⚠️ Не удалось удалить исходное сообщение: %s", e)
+        logger.warning("⚠️ Не удалось удалить сообщение: %s", e)
 
     response_text = " " * 12 + "*ОТВЕТ БЫЛ ЗАЦЕНТРИРОВАН И БЫЛ ТЕКСТ* ВСЕ РАБОТАЕТ"
 
     try:
         await bot.send_message(
-            chat_id=message.chat.id,  # ← ИСПРАВЛЕНО: chat.id вместо chat_id
+            chat_id=message.chat.id,
             text=response_text,
             business_connection_id=business_connection_id,
         )
-        logger.info("✅ Ответ отправлен в тот же бизнес-чат: %s", message.chat.id)
+        logger.info("✅ Ответ отправлен в чат: %s", message.chat.id)
     except Exception as e:
         logger.error("❌ Не удалось отправить ответ: %s", e)
 
 
 async def main() -> None:
-    bot = Bot(
-        token=BOT_TOKEN,
-        request_timeout=60,  # ← ИСПРАВЛЕНО: таймаут 60 сек
-    )
+    bot = Bot(token=BOT_TOKEN, request_timeout=60)
     dp = Dispatcher()
 
     @dp.update()
     async def log_all_updates(update: Update) -> None:
-        logger.info("📥 Получен апдейт: update_id=%s", update.update_id)
+        logger.info("📥 Апдейт: update_id=%s", update.update_id)
         if update.business_connection:
             logger.info("   🔗 business_connection: id=%s, user_id=%s, is_enabled=%s",
                         update.business_connection.id,
@@ -106,49 +98,44 @@ async def main() -> None:
                         update.business_message.message_id,
                         update.business_message.from_user.id if update.business_message.from_user else "None",
                         (update.business_message.text or "")[:50])
-        if update.message:
-            logger.info("   ✉️ message: message_id=%s, chat.type=%s",
-                        update.message.message_id,
-                        update.message.chat.type)
+        # ПРАВИЛЬНОЕ ПОЛЕ: deleted_business_messages
+        if update.deleted_business_messages:
+            logger.info("   🗑️ deleted_business_messages: connection_id=%s, chat_id=%s, message_ids=%s",
+                        update.deleted_business_messages.business_connection_id,
+                        update.deleted_business_messages.chat.id,
+                        update.deleted_business_messages.message_ids)
 
     @dp.business_connection()
     async def on_business_connection(connection: BusinessConnection) -> None:
-        logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s, rights=%s",
-                    connection.id, connection.user.id,
-                    connection.is_enabled, connection.rights)
-
-    @dp.business_messages_deleted()
-    async def on_business_messages_deleted(deleted: BusinessMessagesDeleted) -> None:
-        logger.info("🗑️ BUSINESS MESSAGES DELETED: connection_id=%s, chat_id=%s, message_ids=%s",
-                    deleted.business_connection_id, deleted.chat.id, deleted.message_ids)
+        logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s",
+                    connection.id, connection.user.id, connection.is_enabled)
 
     @dp.business_message()
     async def process_business_message(message: Message) -> None:
-        logger.info("📩 ПОЛУЧЕНО business_message от %s", 
+        logger.info("📩 business_message от %s", 
                     message.from_user.id if message.from_user else "unknown")
         await handle_business_message(message, bot)
 
     @dp.message(F.chat.type == "private")
     async def process_private_message(message: Message) -> None:
-        logger.info("✉️ Обычное личное сообщение (не business) от %s: %r",
+        logger.info("✉️ Обычное личное сообщение от %s: %r",
                     message.from_user.id if message.from_user else "unknown",
                     (message.text or "")[:50])
 
     try:
         logger.info("🚀 Запуск polling...")
-        logger.info("📋 Разрешённые типы апдейтов: business_message, message, business_connection, business_messages_deleted")
         await dp.start_polling(
             bot,
             allowed_updates=[
                 "business_message",
                 "message",
                 "business_connection",
-                "business_messages_deleted",
+                "deleted_business_messages",  # ПРАВИЛЬНОЕ НАЗВАНИЕ
             ],
-            polling_timeout=30,  # ← ИСПРАВЛЕНО: таймаут getUpdates 30 сек
+            polling_timeout=30,
         )
     except asyncio.CancelledError:
-        logger.info("🛑 Polling был отменён.")
+        logger.info("🛑 Polling отменён.")
         raise
     except Exception as e:
         logger.error("❌ Ошибка polling: %s", e, exc_info=True)
