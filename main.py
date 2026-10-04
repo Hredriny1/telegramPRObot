@@ -69,13 +69,14 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     except Exception as e:
         logger.warning("⚠️ Не удалось удалить сообщение: %s", e)
 
-    # ОТПРАВКА ОТВЕТА ОТ ЛИЦА ВЛАДЕЛЬЦА
-    response_text = " " * 12 + "*ОТВЕТ БЫЛ ЗАЦЕНТРИРОВАН И БЫЛ ТЕКСТ* ВСЕ РАБОТАЕТ"
+    # ОТПРАВКА ОТВЕТА В ВИДЕ ЦИТАТЫ
+    response_text = "<blockquote>*ОТВЕТ БЫЛ ЗАЦЕНТРИРОВАН И БЫЛ ТЕКСТ* ВСЕ РАБОТАЕТ</blockquote>"
 
     try:
         await bot.send_message(
             chat_id=message.chat.id,
             text=response_text,
+            parse_mode="HTML",
             business_connection_id=business_connection_id,
         )
         logger.info("✅ Ответ отправлен в чат: %s", message.chat.id)
