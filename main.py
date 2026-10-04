@@ -52,14 +52,13 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     if not business_connection_id:
         return
 
-    # УДАЛЯЕМ КОМАНДУ КАК МОЖНО БЫСТРЕЕ
-    try:
-        await bot.delete_business_messages(
+    # УДАЛЕНИЕ В ФОНЕ — не блокирует отправку ответа
+    asyncio.create_task(
+        bot.delete_business_messages(
             business_connection_id=business_connection_id,
             message_ids=[message.message_id],
         )
-    except Exception as e:
-        logger.warning("⚠️ Не удалось удалить сообщение: %s", e)
+    )
 
     # СОБИРАЕМ ОТВЕТ
     user_id = message.from_user.id
@@ -75,7 +74,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
         "</blockquote>"
     )
 
-    # ОТПРАВЛЯЕМ ОТВЕТ
+    # ОТПРАВЛЯЕМ ОТВЕТ СРАЗУ
     try:
         await bot.send_message(
             chat_id=message.chat.id,
