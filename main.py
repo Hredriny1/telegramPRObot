@@ -38,40 +38,44 @@ logger.info("=" * 70)
 
 
 async def handle_business_message(message: Message, bot: Bot) -> None:
-    logger.info("🔍 handle_business_message для message_id=%s", message.message_id)
-
     if message.from_user is None:
-        logger.warning("⚠️ from_user is None, пропускаю")
         return
 
     if message.from_user.id != OWNER_ID:
-        logger.warning("⚠️ Сообщение от %s, ожидается %s. Пропускаю.",
-                       message.from_user.id, OWNER_ID)
         return
 
     text = message.text or ""
     if not text.startswith(".me"):
-        logger.info("ℹ️ Не команда .me: %r", text[:50])
         return
 
     business_connection_id = message.business_connection_id
     if not business_connection_id:
-        logger.warning("⚠️ Нет business_connection_id, пропускаю.")
         return
 
-    # УДАЛЕНИЕ ИСХОДНОГО СООБЩЕНИЯ .me
+    # УДАЛЯЕМ КОМАНДУ КАК МОЖНО БЫСТРЕЕ
     try:
         await bot.delete_business_messages(
             business_connection_id=business_connection_id,
             message_ids=[message.message_id],
         )
-        logger.info("✅ Удалено сообщение .me, message_id=%s", message.message_id)
     except Exception as e:
         logger.warning("⚠️ Не удалось удалить сообщение: %s", e)
 
-    # ОТПРАВКА ОТВЕТА В ВИДЕ ЦИТАТЫ
-    response_text = "<blockquote>*ОТВЕТ БЫЛ ЗАЦЕНТРИРОВАН И БЫЛ ТЕКСТ* ВСЕ РАБОТАЕТ</blockquote>"
+    # СОБИРАЕМ ОТВЕТ
+    user_id = message.from_user.id
+    username = message.from_user.username
+    username_str = f"@{username}" if username else "не указан"
 
+    response_text = (
+        "<b>Ваш профиль</b>\n"
+        "<blockquote>"
+        f"ID: {user_id}\n"
+        f"Ник: {username_str}\n"
+        "Роль: user"
+        "</blockquote>"
+    )
+
+    # ОТПРАВЛЯЕМ ОТВЕТ
     try:
         await bot.send_message(
             chat_id=message.chat.id,
@@ -88,19 +92,6 @@ async def main() -> None:
     bot = Bot(token=BOT_TOKEN, request_timeout=60)
     dp = Dispatcher()
 
-    @dp.update()
-    async def log_all_updates(update: Update) -> None:
-        if update.business_connection:
-            logger.info("🔗 business_connection: id=%s, user_id=%s, is_enabled=%s",
-                        update.business_connection.id,
-                        update.business_connection.user.id,
-                        update.business_connection.is_enabled)
-        if update.business_message:
-            logger.info("📩 business_message: message_id=%s, from=%s, text=%r",
-                        update.business_message.message_id,
-                        update.business_message.from_user.id if update.business_message.from_user else "None",
-                        (update.business_message.text or "")[:50])
-
     @dp.business_connection()
     async def on_business_connection(connection: BusinessConnection) -> None:
         logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s",
@@ -108,8 +99,6 @@ async def main() -> None:
 
     @dp.business_message()
     async def process_business_message(message: Message) -> None:
-        logger.info("📩 ПОЛУЧЕНО business_message от %s",
-                    message.from_user.id if message.from_user else "unknown")
         await handle_business_message(message, bot)
 
     try:
@@ -118,7 +107,6 @@ async def main() -> None:
             bot,
             allowed_updates=[
                 "business_message",
-                "message",
                 "business_connection",
                 "deleted_business_messages",
             ],
