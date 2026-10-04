@@ -57,6 +57,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
         logger.warning("⚠️ Нет business_connection_id, пропускаю.")
         return
 
+    # Удаление исходного сообщения .me
     try:
         await bot.delete_business_messages(
             business_connection_id=business_connection_id,
@@ -66,6 +67,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     except Exception as e:
         logger.warning("⚠️ Не удалось удалить сообщение: %s", e)
 
+    # Отправка ответа от лица владельца
     response_text = " " * 12 + "*ОТВЕТ БЫЛ ЗАЦЕНТРИРОВАН И БЫЛ ТЕКСТ* ВСЕ РАБОТАЕТ"
 
     try:
