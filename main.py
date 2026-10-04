@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.types import Message, BusinessConnection, Update
 
 logging.basicConfig(
@@ -38,6 +38,8 @@ logger.info("=" * 70)
 
 
 async def handle_business_message(message: Message, bot: Bot) -> None:
+    logger.info("🔍 handle_business_message для message_id=%s", message.message_id)
+
     if message.from_user is None:
         logger.warning("⚠️ from_user is None, пропускаю")
         return
@@ -97,11 +99,6 @@ async def main() -> None:
                         update.business_message.message_id,
                         update.business_message.from_user.id if update.business_message.from_user else "None",
                         (update.business_message.text or "")[:50])
-        if update.deleted_business_messages:
-            logger.info("🗑️ deleted_business_messages: connection_id=%s, chat_id=%s, message_ids=%s",
-                        update.deleted_business_messages.business_connection_id,
-                        update.deleted_business_messages.chat.id,
-                        update.deleted_business_messages.message_ids)
 
     @dp.business_connection()
     async def on_business_connection(connection: BusinessConnection) -> None:
@@ -113,12 +110,6 @@ async def main() -> None:
         logger.info("📩 ПОЛУЧЕНО business_message от %s",
                     message.from_user.id if message.from_user else "unknown")
         await handle_business_message(message, bot)
-
-    @dp.message(F.chat.type == "private")
-    async def process_private_message(message: Message) -> None:
-        logger.info("✉️ Обычное личное сообщение от %s: %r",
-                    message.from_user.id if message.from_user else "unknown",
-                    (message.text or "")[:50])
 
     try:
         logger.info("🚀 Запуск polling...")
