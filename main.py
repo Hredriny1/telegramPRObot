@@ -4,7 +4,8 @@ import os
 import sys
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted
+from aiogram.types import Update
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,12 +39,20 @@ logger.info("=" * 70)
 
 
 async def handle_business_message(message: Message, bot: Bot) -> None:
+    logger.info("🔍 handle_business_message вызван для message_id=%s", message.message_id)
+    logger.info("   from_user.id=%s (ожидается %s)", 
+                message.from_user.id if message.from_user else "None", OWNER_ID)
+    logger.info("   chat.id=%s, chat.type=%s", message.chat.id, message.chat.type)
+    logger.info("   business_connection_id=%s", message.business_connection_id)
+    logger.info("   text=%r", (message.text or "")[:100])
+
     if message.from_user is None:
+        logger.warning("⚠️ from_user is None, пропускаю")
         return
 
     if message.from_user.id != OWNER_ID:
-        logger.debug(
-            "Игнорирую сообщение от пользователя %s, ожидается %s",
+        logger.warning(
+            "⚠️ Сообщение от %s, а ожидается %s. Пропускаю.",
             message.from_user.id,
             OWNER_ID,
         )
@@ -51,7 +60,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
 
     text = message.text or ""
     if not text.startswith(".me"):
-        logger.debug("Игнорирую сообщение без команды .me: %s", text[:100])
+        logger.info("ℹ️ Сообщение не начинается с .me: %r", text[:50])
         return
 
     business_connection_id = message.business_connection_id
@@ -89,24 +98,68 @@ async def main() -> None:
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
-    # ОБРАБОТЧИК ДЛЯ БИЗНЕС-СООБЩЕНИЙ - ЭТО ГЛАВНОЕ ИСПРАВЛЕНИЕ
+    # --- Логируем ВСЕ апдейты, которые приходят боту ---
+    @dp.update()
+    async def log_all_updates(update: Update) -> None:
+        logger.info("📥 Получен апдейт: update_id=%s", update.update_id)
+        if update.business_connection:
+            logger.info("   🔗 business_connection: id=%s, user_id=%s, is_enabled=%s",
+                        update.business_connection.id,
+                        update.business_connection.user.id,
+                        update.business_connection.is_enabled)
+        if update.business_message:
+            logger.info("   💬 business_message: message_id=%s, from=%s, text=%r",
+                        update.business_message.message_id,
+                        update.business_message.from_user.id if update.business_message.from_user else "None",
+                        (update.business_message.text or "")[:50])
+        if update.message:
+            logger.info("   ✉️ message: message_id=%s, chat.type=%s",
+                        update.message.message_id,
+                        update.message.chat.type)
+
+    # --- Подключение Business-бота ---
+    @dp.business_connection()
+    async def on_business_connection(connection: BusinessConnection) -> None:
+        logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s, rights=%s",
+                    connection.id,
+                    connection.user.id,
+                    connection.is_enabled,
+                    connection.rights)
+
+    # --- Отключение/удаление сообщений ---
+    @dp.business_messages_deleted()
+    async def on_business_messages_deleted(deleted: BusinessMessagesDeleted) -> None:
+        logger.info("🗑️ BUSINESS MESSAGES DELETED: connection_id=%s, chat_id=%s, message_ids=%s",
+                    deleted.business_connection_id,
+                    deleted.chat.id,
+                    deleted.message_ids)
+
+    # --- Главный обработчик бизнес-сообщений ---
     @dp.business_message()
     async def process_business_message(message: Message) -> None:
-        logger.info("📩 Получено business_message от %s", message.from_user.id if message.from_user else "unknown")
+        logger.info("📩 ПОЛУЧЕНО business_message от %s", 
+                    message.from_user.id if message.from_user else "unknown")
         await handle_business_message(message, bot)
 
-    # Старый обработчик для обычных личных сообщений (не business) - можно оставить
+    # --- Обычные личные сообщения (не business) ---
     @dp.message(F.chat.type == "private")
     async def process_private_message(message: Message) -> None:
-        logger.debug("Обычное личное сообщение, не business")
-        # Не обрабатываем, чтобы не мешать
+        logger.info("✉️ Обычное личное сообщение (не business) от %s: %r",
+                    message.from_user.id if message.from_user else "unknown",
+                    (message.text or "")[:50])
+        # Не обрабатываем
 
     try:
         logger.info("🚀 Запуск polling...")
-        # ЯВНО УКАЗЫВАЕМ allowed_updates - ВТОРОЕ ВАЖНОЕ ИСПРАВЛЕНИЕ
+        logger.info("📋 Разрешённые типы апдейтов: business_message, message, business_connection, business_messages_deleted")
         await dp.start_polling(
             bot,
-            allowed_updates=["business_message", "message"],
+            allowed_updates=[
+                "business_message",
+                "message",
+                "business_connection",
+                "business_messages_deleted",
+            ],
         )
     except asyncio.CancelledError:
         logger.info("🛑 Polling был отменён.")
