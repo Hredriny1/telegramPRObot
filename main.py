@@ -4,8 +4,7 @@ import os
 import sys
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted
-from aiogram.types import Update
+from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted, Update
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,11 +50,8 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
         return
 
     if message.from_user.id != OWNER_ID:
-        logger.warning(
-            "⚠️ Сообщение от %s, а ожидается %s. Пропускаю.",
-            message.from_user.id,
-            OWNER_ID,
-        )
+        logger.warning("⚠️ Сообщение от %s, а ожидается %s. Пропускаю.",
+                       message.from_user.id, OWNER_ID)
         return
 
     text = message.text or ""
@@ -73,11 +69,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
             business_connection_id=business_connection_id,
             message_ids=[message.message_id],
         )
-        logger.info(
-            "✅ Удалено исходное сообщение .me, business_connection_id=%s, message_id=%s",
-            business_connection_id,
-            message.message_id,
-        )
+        logger.info("✅ Удалено исходное сообщение .me, message_id=%s", message.message_id)
     except Exception as e:
         logger.warning("⚠️ Не удалось удалить исходное сообщение: %s", e)
 
@@ -85,20 +77,22 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
 
     try:
         await bot.send_message(
-            chat_id=message.chat_id,
+            chat_id=message.chat.id,  # ← ИСПРАВЛЕНО: chat.id вместо chat_id
             text=response_text,
             business_connection_id=business_connection_id,
         )
-        logger.info("✅ Ответ отправлен в тот же бизнес-чат: %s", message.chat_id)
+        logger.info("✅ Ответ отправлен в тот же бизнес-чат: %s", message.chat.id)
     except Exception as e:
         logger.error("❌ Не удалось отправить ответ: %s", e)
 
 
 async def main() -> None:
-    bot = Bot(token=BOT_TOKEN)
+    bot = Bot(
+        token=BOT_TOKEN,
+        request_timeout=60,  # ← ИСПРАВЛЕНО: таймаут 60 сек
+    )
     dp = Dispatcher()
 
-    # --- Логируем ВСЕ апдейты, которые приходят боту ---
     @dp.update()
     async def log_all_updates(update: Update) -> None:
         logger.info("📥 Получен апдейт: update_id=%s", update.update_id)
@@ -117,37 +111,28 @@ async def main() -> None:
                         update.message.message_id,
                         update.message.chat.type)
 
-    # --- Подключение Business-бота ---
     @dp.business_connection()
     async def on_business_connection(connection: BusinessConnection) -> None:
         logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s, rights=%s",
-                    connection.id,
-                    connection.user.id,
-                    connection.is_enabled,
-                    connection.rights)
+                    connection.id, connection.user.id,
+                    connection.is_enabled, connection.rights)
 
-    # --- Отключение/удаление сообщений ---
     @dp.business_messages_deleted()
     async def on_business_messages_deleted(deleted: BusinessMessagesDeleted) -> None:
         logger.info("🗑️ BUSINESS MESSAGES DELETED: connection_id=%s, chat_id=%s, message_ids=%s",
-                    deleted.business_connection_id,
-                    deleted.chat.id,
-                    deleted.message_ids)
+                    deleted.business_connection_id, deleted.chat.id, deleted.message_ids)
 
-    # --- Главный обработчик бизнес-сообщений ---
     @dp.business_message()
     async def process_business_message(message: Message) -> None:
         logger.info("📩 ПОЛУЧЕНО business_message от %s", 
                     message.from_user.id if message.from_user else "unknown")
         await handle_business_message(message, bot)
 
-    # --- Обычные личные сообщения (не business) ---
     @dp.message(F.chat.type == "private")
     async def process_private_message(message: Message) -> None:
         logger.info("✉️ Обычное личное сообщение (не business) от %s: %r",
                     message.from_user.id if message.from_user else "unknown",
                     (message.text or "")[:50])
-        # Не обрабатываем
 
     try:
         logger.info("🚀 Запуск polling...")
@@ -160,6 +145,7 @@ async def main() -> None:
                 "business_connection",
                 "business_messages_deleted",
             ],
+            polling_timeout=30,  # ← ИСПРАВЛЕНО: таймаут getUpdates 30 сек
         )
     except asyncio.CancelledError:
         logger.info("🛑 Polling был отменён.")
