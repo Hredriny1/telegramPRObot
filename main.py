@@ -4,7 +4,7 @@ import os
 import sys
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted, Update
+from aiogram.types import Message, BusinessConnection, Update
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,8 +38,6 @@ logger.info("=" * 70)
 
 
 async def handle_business_message(message: Message, bot: Bot) -> None:
-    logger.info("🔍 handle_business_message для message_id=%s", message.message_id)
-    
     if message.from_user is None:
         logger.warning("⚠️ from_user is None, пропускаю")
         return
@@ -87,20 +85,18 @@ async def main() -> None:
 
     @dp.update()
     async def log_all_updates(update: Update) -> None:
-        logger.info("📥 Апдейт: update_id=%s", update.update_id)
         if update.business_connection:
-            logger.info("   🔗 business_connection: id=%s, user_id=%s, is_enabled=%s",
+            logger.info("🔗 business_connection: id=%s, user_id=%s, is_enabled=%s",
                         update.business_connection.id,
                         update.business_connection.user.id,
                         update.business_connection.is_enabled)
         if update.business_message:
-            logger.info("   💬 business_message: message_id=%s, from=%s, text=%r",
+            logger.info("📩 business_message: message_id=%s, from=%s, text=%r",
                         update.business_message.message_id,
                         update.business_message.from_user.id if update.business_message.from_user else "None",
                         (update.business_message.text or "")[:50])
-        # ПРАВИЛЬНОЕ ПОЛЕ: deleted_business_messages
         if update.deleted_business_messages:
-            logger.info("   🗑️ deleted_business_messages: connection_id=%s, chat_id=%s, message_ids=%s",
+            logger.info("🗑️ deleted_business_messages: connection_id=%s, chat_id=%s, message_ids=%s",
                         update.deleted_business_messages.business_connection_id,
                         update.deleted_business_messages.chat.id,
                         update.deleted_business_messages.message_ids)
@@ -112,7 +108,7 @@ async def main() -> None:
 
     @dp.business_message()
     async def process_business_message(message: Message) -> None:
-        logger.info("📩 business_message от %s", 
+        logger.info("📩 ПОЛУЧЕНО business_message от %s",
                     message.from_user.id if message.from_user else "unknown")
         await handle_business_message(message, bot)
 
@@ -130,7 +126,7 @@ async def main() -> None:
                 "business_message",
                 "message",
                 "business_connection",
-                "deleted_business_messages",  # ПРАВИЛЬНОЕ НАЗВАНИЕ
+                "deleted_business_messages",
             ],
             polling_timeout=30,
         )
