@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from collections import OrderedDict
 
@@ -54,11 +54,9 @@ logger.info("=" * 70)
 # ХРАНИЛИЩА
 # ============================================================
 
-# Сообщения: ключ (chat_id, message_id) -> {"text": str, "sender_id": int}
 MESSAGE_STORAGE = OrderedDict()
 MAX_STORAGE_SIZE = 2000
 
-# Муты: ключ chat_id -> {"until": float или None}  (None = бессрочно)
 MUTE_STORAGE = {}
 
 
@@ -74,7 +72,6 @@ def get_stored_message(chat_id: int, message_id: int) -> dict | None:
 
 
 def is_muted(chat_id: int) -> bool:
-    """Проверяет, активен ли мут в чате. Если время вышло — удаляет мут."""
     if chat_id not in MUTE_STORAGE:
         return False
     mute_info = MUTE_STORAGE[chat_id]
@@ -82,7 +79,6 @@ def is_muted(chat_id: int) -> bool:
         return True
     if time.time() < mute_info["until"]:
         return True
-    # Время вышло — выключаем мут
     del MUTE_STORAGE[chat_id]
     return False
 
@@ -98,15 +94,7 @@ def clear_mute(chat_id: int) -> None:
     MUTE_STORAGE.pop(chat_id, None)
 
 
-# ============================================================
-# ПАРСИНГ КОМАНД
-# ============================================================
-
 def parse_command(text: str) -> tuple[str, str, bool]:
-    """
-    Возвращает (команда, аргумент, to_dm).
-    to_dm = True, если команда заканчивается на ' -s'.
-    """
     text = text.strip()
     to_dm = False
     if text.endswith(" -s"):
@@ -132,19 +120,18 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     sender_id = message.from_user.id
     text = message.text or ""
 
-    # Сохраняем КАЖДОЕ сообщение (и своё, и собеседника) для отслеживания удалений
     if text:
         store_message(chat_id, message_id, text, sender_id)
 
     # ========== ПРОВЕРКА МУТА ==========
-    # Если мут активен и сообщение от СОБЕСЕДНИКА (не от владельца) — удаляем
-    if is_muted(chat_id) and sender_id != OWNER_ID:
+    # Если мут активен — удаляем ВСЕ сообщения в этом чате (и мои, и собеседника)
+    if is_muted(chat_id):
         try:
             await bot.delete_business_messages(
                 business_connection_id=message.business_connection_id,
                 message_ids=[message_id],
             )
-            logger.info("🔇 Мут: удалено сообщение собеседника в чате %s", chat_id)
+            logger.info("🔇 Мут: удалено сообщение в чате %s (от %s)", chat_id, sender_id)
         except Exception as e:
             logger.warning("⚠️ Не удалось удалить сообщение (мут): %s", e)
         return  # Не обрабатываем дальше
@@ -159,7 +146,6 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
 
     cmd, arg, to_dm = parse_command(text)
 
-    # Удаляем команду (в фоне)
     asyncio.create_task(
         bot.delete_business_messages(
             business_connection_id=business_connection_id,
@@ -167,10 +153,8 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
         )
     )
 
-    # Определяем, куда отправлять ответ
     reply_chat_id = OWNER_ID if to_dm else chat_id
 
-    # ========== РОУТИНГ КОМАНД ==========
     if cmd == ".me":
         await cmd_me(message, bot, business_connection_id, reply_chat_id, to_dm)
     elif cmd == ".business":
@@ -190,7 +174,6 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
 
 
 async def send_reply(bot: Bot, chat_id: int, text: str, business_connection_id: str | None, to_dm: bool, parse_mode: str = "HTML"):
-    """Отправляет ответ либо в бизнес-чат, либо в ЛС с ботом."""
     try:
         kwargs = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
         if not to_dm and business_connection_id:
@@ -205,8 +188,6 @@ async def cmd_me(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_
     user_id = message.from_user.id
     username = message.from_user.username
     username_str = f"@{username}" if username else "не указан"
-
-    # Роль: creator для владельца, user для остальных
     role = "creator" if user_id == OWNER_ID else "user"
 
     response_text = (
@@ -319,7 +300,7 @@ async def cmd_mute(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
         response_text = (
             "🔇 <b>Мут включен</b>\n"
             "<blockquote>"
-            "Сообщения собеседника будут удаляться, пока не выключите.\n"
+            "Сообщения в этом чате будут удаляться, пока не выключите.\n"
             "Выключить: .unmute"
             "</blockquote>"
         )
@@ -327,7 +308,7 @@ async def cmd_mute(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
         response_text = (
             "🔇 <b>Мут включен</b>\n"
             "<blockquote>"
-            f"Сообщения собеседника будут удаляться {minutes} мин.\n"
+            f"Сообщения в этом чате будут удаляться {minutes} мин.\n"
             "Выключить: .unmute"
             "</blockquote>"
         )
@@ -473,7 +454,6 @@ async def cmd_scan(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
 async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot: Bot) -> None:
     chat_id = deleted.chat.id
 
-    # Если мут активен — не отправляем уведомления об удалении
     if is_muted(chat_id):
         logger.info("🔇 Мут активен, уведомление об удалении в чате %s пропущено", chat_id)
         return
@@ -482,7 +462,6 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
     chat_username = f"@{chat.username}" if chat.username else "не указан"
     chat_title = chat.title or chat.full_name or "неизвестно"
 
-    # Разделяем удалённые сообщения на "мои" и "собеседника"
     my_deleted = []
     their_deleted = []
 
@@ -494,15 +473,12 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
             else:
                 their_deleted.append((msg_id, stored["text"]))
         else:
-            # Неизвестно, чьё — считаем собеседника
             their_deleted.append((msg_id, "(текст не найден в памяти)"))
 
-    # Если удалил ТОЛЬКО я — не пишем уведомление
     if my_deleted and not their_deleted:
         logger.info("🗑️ Удалены только мои сообщения в чате %s, уведомление не отправлено", chat_id)
         return
 
-    # Если удалил собеседник — формируем уведомление
     if their_deleted:
         texts_block = "\n\n".join(
             f"<b>ID {mid}:</b>\n{text}" for mid, text in their_deleted
@@ -516,7 +492,6 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
             f"{texts_block}"
         )
     else:
-        # Только мои, но с unknown
         notification_text = (
             "<b>🗑️ Удалено сообщение</b>\n\n"
             f"<b>ID чата:</b> {chat_id}\n"
