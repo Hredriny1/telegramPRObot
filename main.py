@@ -9,7 +9,9 @@ from collections import OrderedDict
 
 import aiohttp
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted, Update
+from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,8 +23,10 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 OWNER_ID_RAW = os.getenv("OWNER_ID", "").strip()
 VIRUSTOTAL_API_KEY = os.getenv("API", "").strip()
-# URL твоего Cloudflare Worker для обхода блокировки VirusTotal
 VIRUSTOTAL_PROXY = os.getenv("VT_PROXY", "").strip()
+
+# URL твоего Cloudflare Worker для Telegram
+TELEGRAM_PROXY_URL = "https://lively-brook-2aa0tg-proxy.kichuk2027.workers.dev"
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
@@ -39,34 +43,30 @@ except ValueError:
     raise SystemExit(1)
 
 logger.info("=" * 70)
-logger.info("🤖 Запуск Telegram бота в режиме long polling")
+logger.info("🤖 Запуск Telegram бота через Cloudflare Worker")
 logger.info("BOT_TOKEN: %s", "***" + BOT_TOKEN[-4:] if len(BOT_TOKEN) > 4 else "***")
 logger.info("OWNER_ID: %s", OWNER_ID)
+logger.info("TELEGRAM_PROXY_URL: %s", TELEGRAM_PROXY_URL)
 logger.info("VIRUSTOTAL_API_KEY (API): %s",
             f"установлен (длина {len(VIRUSTOTAL_API_KEY)})" if VIRUSTOTAL_API_KEY else "❌ НЕ УСТАНОВЛЕН")
-logger.info("VT_PROXY: %s", VIRUSTOTAL_PROXY if VIRUSTOTAL_PROXY else "не задан (прямое подключение)")
+logger.info("VT_PROXY: %s", VIRUSTOTAL_PROXY if VIRUSTOTAL_PROXY else "не задан")
 logger.info("=" * 70)
 
 # ============================================================
 # ХРАНИЛИЩЕ СООБЩЕНИЙ ДЛЯ ОТСЛЕЖИВАНИЯ УДАЛЕНИЙ
 # ============================================================
-# Храним последние 1000 сообщений в памяти
-# Ключ: (chat_id, message_id), Значение: текст сообщения
 MESSAGE_STORAGE = OrderedDict()
 MAX_STORAGE_SIZE = 1000
 
 
 def store_message(chat_id: int, message_id: int, text: str) -> None:
-    """Сохраняет текст сообщения в память."""
     key = (chat_id, message_id)
     MESSAGE_STORAGE[key] = text
-    # Удаляем старые, если превышен лимит
     while len(MESSAGE_STORAGE) > MAX_STORAGE_SIZE:
         MESSAGE_STORAGE.popitem(last=False)
 
 
 def get_stored_message(chat_id: int, message_id: int) -> str | None:
-    """Достаёт сохранённый текст сообщения."""
     return MESSAGE_STORAGE.get((chat_id, message_id))
 
 
@@ -78,11 +78,9 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
 
-    # Сохраняем КАЖДОЕ входящее сообщение в память (для отслеживания удалений)
     if message.text:
         store_message(message.chat.id, message.message_id, message.text)
 
-    # Команды обрабатываем только от владельца
     if message.from_user.id != OWNER_ID:
         return
 
@@ -393,12 +391,10 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
             pass
         return
 
-    # Если задан прокси — используем его для VirusTotal
     vt_upload_url = "https://www.virustotal.com/api/v3/files"
     vt_check_url = "https://www.virustotal.com/api/v3/analyses/"
 
     if VIRUSTOTAL_PROXY:
-        # Прокси ожидает путь в формате /api/v3/...
         vt_upload_url = f"{VIRUSTOTAL_PROXY.rstrip('/')}/api/v3/files"
         vt_check_url = f"{VIRUSTOTAL_PROXY.rstrip('/')}/api/v3/analyses/"
 
@@ -489,7 +485,6 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
 
 
 async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot: Bot) -> None:
-    """Обработка удалённых сообщений с восстановлением текста из памяти."""
     logger.info(
         "🗑️ Удалены сообщения: connection_id=%s, chat_id=%s, message_ids=%s",
         deleted.business_connection_id,
@@ -501,7 +496,6 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
     chat_username = f"@{chat.username}" if chat.username else "не указан"
     chat_title = chat.title or chat.full_name or "неизвестно"
 
-    # Восстанавливаем текст каждого удалённого сообщения из памяти
     restored_texts = []
     for msg_id in deleted.message_ids:
         text = get_stored_message(chat.id, msg_id)
@@ -533,7 +527,11 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
 
 
 async def main() -> None:
-    bot = Bot(token=BOT_TOKEN, request_timeout=60)
+    # Подключаемся к Telegram через Cloudflare Worker
+    session = AiohttpSession(
+        api=TelegramAPIServer.from_base(TELEGRAM_PROXY_URL)
+    )
+    bot = Bot(token=BOT_TOKEN, session=session, request_timeout=60)
     dp = Dispatcher()
 
     @dp.business_connection()
@@ -550,7 +548,7 @@ async def main() -> None:
         await handle_deleted_business_messages(deleted, bot)
 
     try:
-        logger.info("🚀 Запуск polling...")
+        logger.info("🚀 Запуск polling через Cloudflare Worker...")
         await dp.start_polling(
             bot,
             allowed_updates=[
@@ -558,7 +556,7 @@ async def main() -> None:
                 "business_connection",
                 "deleted_business_messages",
             ],
-            polling_timeout=30,
+            polling_timeout=20,  # Cloudflare имеет лимит 30 сек на соединение
         )
     except asyncio.CancelledError:
         logger.info("🛑 Polling отменён.")
