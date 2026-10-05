@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from collections import OrderedDict
 
 import aiohttp
 from aiogram import Bot, Dispatcher
@@ -20,6 +21,8 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 OWNER_ID_RAW = os.getenv("OWNER_ID", "").strip()
 VIRUSTOTAL_API_KEY = os.getenv("API", "").strip()
+# URL твоего Cloudflare Worker для обхода блокировки VirusTotal
+VIRUSTOTAL_PROXY = os.getenv("VT_PROXY", "").strip()
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
@@ -39,14 +42,47 @@ logger.info("=" * 70)
 logger.info("🤖 Запуск Telegram бота в режиме long polling")
 logger.info("BOT_TOKEN: %s", "***" + BOT_TOKEN[-4:] if len(BOT_TOKEN) > 4 else "***")
 logger.info("OWNER_ID: %s", OWNER_ID)
-logger.info("VIRUSTOTAL_API_KEY (переменная API): %s",
+logger.info("VIRUSTOTAL_API_KEY (API): %s",
             f"установлен (длина {len(VIRUSTOTAL_API_KEY)})" if VIRUSTOTAL_API_KEY else "❌ НЕ УСТАНОВЛЕН")
+logger.info("VT_PROXY: %s", VIRUSTOTAL_PROXY if VIRUSTOTAL_PROXY else "не задан (прямое подключение)")
 logger.info("=" * 70)
 
+# ============================================================
+# ХРАНИЛИЩЕ СООБЩЕНИЙ ДЛЯ ОТСЛЕЖИВАНИЯ УДАЛЕНИЙ
+# ============================================================
+# Храним последние 1000 сообщений в памяти
+# Ключ: (chat_id, message_id), Значение: текст сообщения
+MESSAGE_STORAGE = OrderedDict()
+MAX_STORAGE_SIZE = 1000
+
+
+def store_message(chat_id: int, message_id: int, text: str) -> None:
+    """Сохраняет текст сообщения в память."""
+    key = (chat_id, message_id)
+    MESSAGE_STORAGE[key] = text
+    # Удаляем старые, если превышен лимит
+    while len(MESSAGE_STORAGE) > MAX_STORAGE_SIZE:
+        MESSAGE_STORAGE.popitem(last=False)
+
+
+def get_stored_message(chat_id: int, message_id: int) -> str | None:
+    """Достаёт сохранённый текст сообщения."""
+    return MESSAGE_STORAGE.get((chat_id, message_id))
+
+
+# ============================================================
+# ОСНОВНАЯ ЛОГИКА
+# ============================================================
 
 async def handle_business_message(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
+
+    # Сохраняем КАЖДОЕ входящее сообщение в память (для отслеживания удалений)
+    if message.text:
+        store_message(message.chat.id, message.message_id, message.text)
+
+    # Команды обрабатываем только от владельца
     if message.from_user.id != OWNER_ID:
         return
 
@@ -326,7 +362,7 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
         return
 
     if not VIRUSTOTAL_API_KEY:
-        logger.error("❌ .scan: VIRUSTOTAL_API_KEY пустой. Переменная API не читается.")
+        logger.error("❌ .scan: VIRUSTOTAL_API_KEY пустой.")
         response_text = "<b>❌ VirusTotal API-ключ не настроен.</b>\nДобавьте переменную <b>API</b> с ключом."
         try:
             await bot.send_message(
@@ -357,13 +393,22 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
             pass
         return
 
+    # Если задан прокси — используем его для VirusTotal
+    vt_upload_url = "https://www.virustotal.com/api/v3/files"
+    vt_check_url = "https://www.virustotal.com/api/v3/analyses/"
+
+    if VIRUSTOTAL_PROXY:
+        # Прокси ожидает путь в формате /api/v3/...
+        vt_upload_url = f"{VIRUSTOTAL_PROXY.rstrip('/')}/api/v3/files"
+        vt_check_url = f"{VIRUSTOTAL_PROXY.rstrip('/')}/api/v3/analyses/"
+
     try:
         async with aiohttp.ClientSession() as session:
             form = aiohttp.FormData()
             form.add_field("file", file_data, filename=file_name)
 
             async with session.post(
-                "https://www.virustotal.com/api/v3/files",
+                vt_upload_url,
                 headers={"x-apikey": VIRUSTOTAL_API_KEY},
                 data=form,
             ) as resp:
@@ -385,7 +430,7 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
             await asyncio.sleep(5)
 
             async with session.get(
-                f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
+                f"{vt_check_url}{analysis_id}",
                 headers={"x-apikey": VIRUSTOTAL_API_KEY},
             ) as resp:
                 if resp.status != 200:
@@ -444,7 +489,7 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
 
 
 async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot: Bot) -> None:
-    """Обработка удалённых сообщений в бизнес-аккаунте."""
+    """Обработка удалённых сообщений с восстановлением текста из памяти."""
     logger.info(
         "🗑️ Удалены сообщения: connection_id=%s, chat_id=%s, message_ids=%s",
         deleted.business_connection_id,
@@ -452,25 +497,31 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
         deleted.message_ids,
     )
 
-    # Отправляем уведомление в ЛС владельцу
-    # ВАЖНО: Telegram не присылает текст удалённого сообщения, только его ID
+    chat = deleted.chat
+    chat_username = f"@{chat.username}" if chat.username else "не указан"
+    chat_title = chat.title or chat.full_name or "неизвестно"
+
+    # Восстанавливаем текст каждого удалённого сообщения из памяти
+    restored_texts = []
+    for msg_id in deleted.message_ids:
+        text = get_stored_message(chat.id, msg_id)
+        if text:
+            restored_texts.append(f"<b>ID {msg_id}:</b>\n{text}")
+        else:
+            restored_texts.append(f"<b>ID {msg_id}:</b>\n<i>(текст не найден в памяти)</i>")
+
+    texts_block = "\n\n".join(restored_texts)
+
+    notification_text = (
+        "<b>Зафиксировано удалённое сообщение!</b>\n\n"
+        f"<b>ID чата:</b> {chat.id}\n"
+        f"<b>Username:</b> {chat_username}\n"
+        f"<b>Название:</b> {chat_title}\n\n"
+        "<b>Содержимое удалённого сообщения:</b>\n"
+        f"{texts_block}"
+    )
+
     try:
-        chat = deleted.chat
-        chat_username = f"@{chat.username}" if chat.username else "не указан"
-        chat_title = chat.title or chat.full_name or "неизвестно"
-
-        # Формируем список удалённых ID
-        ids_str = ", ".join(str(mid) for mid in deleted.message_ids)
-
-        notification_text = (
-            "<b>Зафиксировано удалённое сообщение!</b>\n\n"
-            f"<b>ID чата:</b> {chat.id}\n"
-            f"<b>Username:</b> {chat_username}\n"
-            f"<b>Название:</b> {chat_title}\n\n"
-            f"<b>ID удалённых сообщений:</b> {ids_str}\n\n"
-            "<i>Содержимое удалённого сообщения недоступно: Telegram не передаёт текст удалённых сообщений.</i>"
-        )
-
         await bot.send_message(
             chat_id=OWNER_ID,
             text=notification_text,
