@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import aiohttp
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message, BusinessConnection
+from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted, Update
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +39,8 @@ logger.info("=" * 70)
 logger.info("🤖 Запуск Telegram бота в режиме long polling")
 logger.info("BOT_TOKEN: %s", "***" + BOT_TOKEN[-4:] if len(BOT_TOKEN) > 4 else "***")
 logger.info("OWNER_ID: %s", OWNER_ID)
-logger.info("VIRUSTOTAL_API_KEY: %s", "установлен" if VIRUSTOTAL_API_KEY else "❌ НЕ УСТАНОВЛЕН")
+logger.info("VIRUSTOTAL_API_KEY (переменная API): %s",
+            f"установлен (длина {len(VIRUSTOTAL_API_KEY)})" if VIRUSTOTAL_API_KEY else "❌ НЕ УСТАНОВЛЕН")
 logger.info("=" * 70)
 
 
@@ -325,7 +326,8 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
         return
 
     if not VIRUSTOTAL_API_KEY:
-        response_text = "<b>❌ VirusTotal API-ключ не настроен.</b>\nДобавьте переменную API."
+        logger.error("❌ .scan: VIRUSTOTAL_API_KEY пустой. Переменная API не читается.")
+        response_text = "<b>❌ VirusTotal API-ключ не настроен.</b>\nДобавьте переменную <b>API</b> с ключом."
         try:
             await bot.send_message(
                 chat_id=message.chat.id,
@@ -337,7 +339,6 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
             logger.error("❌ .scan ошибка: %s", e)
         return
 
-    # Скачиваем файл
     try:
         file = await bot.get_file(file_id)
         file_bytes = await bot.download_file(file.file_path)
@@ -356,7 +357,6 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
             pass
         return
 
-    # Отправляем в VirusTotal
     try:
         async with aiohttp.ClientSession() as session:
             form = aiohttp.FormData()
@@ -443,6 +443,44 @@ async def cmd_scan(message: Message, bot: Bot, business_connection_id: str) -> N
             pass
 
 
+async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot: Bot) -> None:
+    """Обработка удалённых сообщений в бизнес-аккаунте."""
+    logger.info(
+        "🗑️ Удалены сообщения: connection_id=%s, chat_id=%s, message_ids=%s",
+        deleted.business_connection_id,
+        deleted.chat.id,
+        deleted.message_ids,
+    )
+
+    # Отправляем уведомление в ЛС владельцу
+    # ВАЖНО: Telegram не присылает текст удалённого сообщения, только его ID
+    try:
+        chat = deleted.chat
+        chat_username = f"@{chat.username}" if chat.username else "не указан"
+        chat_title = chat.title or chat.full_name or "неизвестно"
+
+        # Формируем список удалённых ID
+        ids_str = ", ".join(str(mid) for mid in deleted.message_ids)
+
+        notification_text = (
+            "<b>Зафиксировано удалённое сообщение!</b>\n\n"
+            f"<b>ID чата:</b> {chat.id}\n"
+            f"<b>Username:</b> {chat_username}\n"
+            f"<b>Название:</b> {chat_title}\n\n"
+            f"<b>ID удалённых сообщений:</b> {ids_str}\n\n"
+            "<i>Содержимое удалённого сообщения недоступно: Telegram не передаёт текст удалённых сообщений.</i>"
+        )
+
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=notification_text,
+            parse_mode="HTML",
+        )
+        logger.info("✅ Уведомление об удалении отправлено владельцу")
+    except Exception as e:
+        logger.error("❌ Не удалось отправить уведомление об удалении: %s", e)
+
+
 async def main() -> None:
     bot = Bot(token=BOT_TOKEN, request_timeout=60)
     dp = Dispatcher()
@@ -455,6 +493,10 @@ async def main() -> None:
     @dp.business_message()
     async def process_business_message(message: Message) -> None:
         await handle_business_message(message, bot)
+
+    @dp.deleted_business_messages()
+    async def process_deleted_business_messages(deleted: BusinessMessagesDeleted) -> None:
+        await handle_deleted_business_messages(deleted, bot)
 
     try:
         logger.info("🚀 Запуск polling...")
