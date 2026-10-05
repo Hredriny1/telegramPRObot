@@ -25,7 +25,6 @@ OWNER_ID_RAW = os.getenv("OWNER_ID", "").strip()
 VIRUSTOTAL_API_KEY = os.getenv("API", "").strip()
 VIRUSTOTAL_PROXY = os.getenv("VT_PROXY", "").strip()
 
-# URL твоего Cloudflare Worker для Telegram
 TELEGRAM_PROXY_URL = "https://lively-brook-2aa0tg-proxy.kichuk2027.workers.dev"
 
 if not BOT_TOKEN:
@@ -52,9 +51,7 @@ logger.info("VIRUSTOTAL_API_KEY (API): %s",
 logger.info("VT_PROXY: %s", VIRUSTOTAL_PROXY if VIRUSTOTAL_PROXY else "не задан")
 logger.info("=" * 70)
 
-# ============================================================
-# ХРАНИЛИЩЕ СООБЩЕНИЙ ДЛЯ ОТСЛЕЖИВАНИЯ УДАЛЕНИЙ
-# ============================================================
+# Хранилище для отслеживания удалённых сообщений
 MESSAGE_STORAGE = OrderedDict()
 MAX_STORAGE_SIZE = 1000
 
@@ -69,10 +66,6 @@ def store_message(chat_id: int, message_id: int, text: str) -> None:
 def get_stored_message(chat_id: int, message_id: int) -> str | None:
     return MESSAGE_STORAGE.get((chat_id, message_id))
 
-
-# ============================================================
-# ОСНОВНАЯ ЛОГИКА
-# ============================================================
 
 async def handle_business_message(message: Message, bot: Bot) -> None:
     if message.from_user is None:
@@ -527,11 +520,12 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
 
 
 async def main() -> None:
-    # Подключаемся к Telegram через Cloudflare Worker
+    # Пул соединений: переиспользуем TCP, чтобы не поднимать новое каждый раз
     session = AiohttpSession(
-        api=TelegramAPIServer.from_base(TELEGRAM_PROXY_URL)
+        api=TelegramAPIServer.from_base(TELEGRAM_PROXY_URL),
+        limit=50,
     )
-    bot = Bot(token=BOT_TOKEN, session=session, request_timeout=60)
+    bot = Bot(token=BOT_TOKEN, session=session, request_timeout=15)
     dp = Dispatcher()
 
     @dp.business_connection()
@@ -556,7 +550,7 @@ async def main() -> None:
                 "business_connection",
                 "deleted_business_messages",
             ],
-            polling_timeout=20,  # Cloudflare имеет лимит 30 сек на соединение
+            polling_timeout=10,
         )
     except asyncio.CancelledError:
         logger.info("🛑 Polling отменён.")
