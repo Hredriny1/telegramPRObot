@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import time
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from collections import OrderedDict
@@ -45,9 +46,6 @@ logger.info("=" * 70)
 logger.info("🤖 Запуск Telegram бота через Cloudflare Worker")
 logger.info("BOT_TOKEN: %s", "***" + BOT_TOKEN[-4:] if len(BOT_TOKEN) > 4 else "***")
 logger.info("OWNER_ID: %s", OWNER_ID)
-logger.info("TELEGRAM_PROXY_URL: %s", TELEGRAM_PROXY_URL)
-logger.info("VIRUSTOTAL_API_KEY (API): %s",
-            f"установлен (длина {len(VIRUSTOTAL_API_KEY)})" if VIRUSTOTAL_API_KEY else "❌ НЕ УСТАНОВЛЕН")
 logger.info("=" * 70)
 
 # ============================================================
@@ -57,7 +55,27 @@ logger.info("=" * 70)
 MESSAGE_STORAGE = OrderedDict()
 MAX_STORAGE_SIZE = 2000
 
-MUTE_STORAGE = {}
+MUTE_STORAGE = {}  # chat_id -> {"until": float | None}
+
+# Режим обхода мута: chat_id -> True/False
+NOMUTE_STORAGE = {}
+
+# Ожидание текста для отправки в чат: owner_id -> chat_id
+PENDING_SEND = {}
+
+# Антимат: chat_id -> True/False
+ANTIMAT_STORAGE = {}
+
+# Список матерных слов (русский мат + оскорбления)
+BAD_WORDS = [
+    "бля", "блядь", "блять", "блят", "сука", "суки", "сук", "хуй", "хуя", "хую", "хуё",
+    "пизда", "пизды", "пизде", "пизду", "пизд", "ебал", "ебать", "ебёт", "ебет", "ебу",
+    "еби", "ебан", "ёбан", "уеб", "уёб", "заеб", "заёб", "наеб", "наёб", "отъеб", "отъёб",
+    "долбоеб", "долбоёб", "мудак", "мудила", "мразь", "гандон", "гондон", "пидор", "пидар",
+    "пидорас", "пидорас", "шлюха", "шалава", "курва", "сучка", "мразота", "тварь",
+    "дебил", "дебилоид", "идиот", "кретин", "даун", "лох", "чмо", "чмошник", "уёбок",
+    "уебок", "дрочь", "дроч", "манд", "мандав", "манда", "манду", "манды",
+]
 
 
 def store_message(chat_id: int, message_id: int, text: str, sender_id: int) -> None:
@@ -94,6 +112,36 @@ def clear_mute(chat_id: int) -> None:
     MUTE_STORAGE.pop(chat_id, None)
 
 
+def is_nomute(chat_id: int) -> bool:
+    return NOMUTE_STORAGE.get(chat_id, False)
+
+
+def set_nomute(chat_id: int, enabled: bool) -> None:
+    NOMUTE_STORAGE[chat_id] = enabled
+
+
+def is_antimat(chat_id: int) -> bool:
+    return ANTIMAT_STORAGE.get(chat_id, False)
+
+
+def set_antimat(chat_id: int, enabled: bool) -> None:
+    ANTIMAT_STORAGE[chat_id] = enabled
+
+
+def contains_bad_words(text: str) -> bool:
+    """Проверяет текст на наличие мата/оскорблений."""
+    if not text:
+        return False
+    text_lower = text.lower()
+    # Разбиваем на слова по не-буквам
+    words = re.findall(r'[а-яё]+', text_lower)
+    for word in words:
+        for bad in BAD_WORDS:
+            if bad in word:
+                return True
+    return False
+
+
 def parse_command(text: str) -> tuple[str, str, bool]:
     text = text.strip()
     to_dm = False
@@ -123,18 +171,30 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     if text:
         store_message(chat_id, message_id, text, sender_id)
 
-    # ========== ПРОВЕРКА МУТА ==========
-    # Если мут активен — удаляем ВСЕ сообщения в этом чате (и мои, и собеседника)
-    if is_muted(chat_id):
+    # ========== АНТИМАТ: удаляем сообщения собеседника с матом ==========
+    if is_antimat(chat_id) and sender_id != OWNER_ID:
+        if text and contains_bad_words(text):
+            try:
+                await bot.delete_business_messages(
+                    business_connection_id=message.business_connection_id,
+                    message_ids=[message_id],
+                )
+                logger.info("🛡 Антимат: удалено сообщение собеседника в чате %s", chat_id)
+            except Exception as e:
+                logger.warning("⚠️ Антимат: не удалось удалить: %s", e)
+            return
+
+    # ========== МУТ: удаляем ВСЕ сообщения (кроме моих) ==========
+    if is_muted(chat_id) and sender_id != OWNER_ID:
         try:
             await bot.delete_business_messages(
                 business_connection_id=message.business_connection_id,
                 message_ids=[message_id],
             )
-            logger.info("🔇 Мут: удалено сообщение в чате %s (от %s)", chat_id, sender_id)
+            logger.info("🔇 Мут: удалено сообщение собеседника в чате %s", chat_id)
         except Exception as e:
-            logger.warning("⚠️ Не удалось удалить сообщение (мут): %s", e)
-        return  # Не обрабатываем дальше
+            logger.warning("⚠️ Мут: не удалось удалить: %s", e)
+        return
 
     # ========== КОМАНДЫ ТОЛЬКО ОТ ВЛАДЕЛЬЦА ==========
     if sender_id != OWNER_ID:
@@ -146,6 +206,35 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
 
     cmd, arg, to_dm = parse_command(text)
 
+    # Если это команда .nomute или .unnomute — обрабатываем
+    if cmd == ".nomute":
+        await cmd_nomute(message, bot, business_connection_id)
+        # Удаляем команду из чата
+        asyncio.create_task(
+            bot.delete_business_messages(
+                business_connection_id=business_connection_id,
+                message_ids=[message_id],
+            )
+        )
+        return
+    elif cmd == ".unnomute":
+        await cmd_unnomute(message, bot, business_connection_id)
+        asyncio.create_task(
+            bot.delete_business_messages(
+                business_connection_id=business_connection_id,
+                message_ids=[message_id],
+            )
+        )
+        return
+
+    # Если есть ожидание отправки текста в чат
+    if sender_id in PENDING_SEND and chat_id == OWNER_ID:
+        # Это ЛС бота — отправляем текст в целевой чат
+        target_chat_id = PENDING_SEND.pop(sender_id)
+        await send_to_chat_from_ls(message, bot, target_chat_id, text)
+        return
+
+    # Удаляем команду (в фоне)
     asyncio.create_task(
         bot.delete_business_messages(
             business_connection_id=business_connection_id,
@@ -171,6 +260,143 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
         await cmd_mute(message, bot, business_connection_id, reply_chat_id, to_dm, arg)
     elif cmd == ".unmute":
         await cmd_unmute(message, bot, business_connection_id, reply_chat_id, to_dm)
+    elif cmd == ".antimat":
+        await cmd_antimat(message, bot, business_connection_id, reply_chat_id, to_dm, arg)
+
+
+async def send_to_chat_from_ls(message: Message, bot: Bot, target_chat_id: int, text: str) -> None:
+    """Отправляет текст из ЛС в целевой чат от лица владельца."""
+    # Получаем business_connection_id из сохранённых данных
+    # Для этого нужно знать, какой connection_id связан с этим чатом
+    # Упрощённо: ищем в MESSAGE_STORAGE последнее сообщение из этого чата
+    bc_id = None
+    for (cid, _), data in reversed(list(MESSAGE_STORAGE.items())):
+        if cid == target_chat_id:
+            # Нужно получить business_connection_id — он не хранится в MESSAGE_STORAGE
+            # Поэтому используем глобальную переменную или храним отдельно
+            break
+
+    # Временное решение: сохраняем последний business_connection_id глобально
+    if LAST_BUSINESS_CONNECTION_ID:
+        bc_id = LAST_BUSINESS_CONNECTION_ID
+
+    if not bc_id:
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text="❌ Не удалось определить бизнес-подключение.",
+        )
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=target_chat_id,
+            text=text,
+            business_connection_id=bc_id,
+        )
+        # Получаем username собеседника (упрощённо — chat_id)
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"✅ Доставлено в чат {target_chat_id}",
+        )
+        logger.info("✅ Текст отправлен из ЛС в чат %s", target_chat_id)
+    except Exception as e:
+        logger.error("❌ Не удалось отправить текст из ЛС: %s", e)
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"❌ Ошибка доставки: {e}",
+        )
+
+
+async def cmd_nomute(message: Message, bot: Bot, bc_id: str) -> None:
+    """Включает режим обхода мута."""
+    global LAST_BUSINESS_CONNECTION_ID
+    chat_id = message.chat.id
+    LAST_BUSINESS_CONNECTION_ID = bc_id
+
+    set_nomute(chat_id, True)
+    PENDING_SEND[OWNER_ID] = chat_id
+
+    # Ответ в чат
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "🛡 <b>Режим обхода мута включён</b>\n"
+                "<blockquote>"
+                "Пишите сообщения в ЛС бота или в этот чат."
+                "</blockquote>"
+            ),
+            parse_mode="HTML",
+            business_connection_id=bc_id,
+        )
+    except Exception as e:
+        logger.error("❌ .nomute: не удалось отправить в чат: %s", e)
+
+    # Ответ в ЛС
+    try:
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=(
+                "🛡 <b>Режим обхода мута был включен</b>\n\n"
+                "⭕ <b>Пишите текст мне в ЛС.</b>\n"
+                "⭕ <b>Он будет отправлен в нужный чат.</b>"
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error("❌ .nomute: не удалось отправить в ЛС: %s", e)
+
+    logger.info("🛡 Режим обхода мута включён для чата %s", chat_id)
+
+
+async def cmd_unnomute(message: Message, bot: Bot, bc_id: str) -> None:
+    """Выключает режим обхода мута."""
+    chat_id = message.chat.id
+    set_nomute(chat_id, False)
+    PENDING_SEND.pop(OWNER_ID, None)
+
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text="🛡 <b>Режим обхода мута выключен</b>",
+            parse_mode="HTML",
+            business_connection_id=bc_id,
+        )
+    except Exception as e:
+        logger.error("❌ .unnomute: не удалось отправить: %s", e)
+
+    logger.info("🛡 Режим обхода мута выключен для чата %s", chat_id)
+
+
+async def cmd_antimat(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+    chat_id = message.chat.id
+    arg = arg.lower().strip()
+
+    if arg == "on":
+        set_antimat(chat_id, True)
+        response_text = (
+            "🛡 <b>Антимат включён</b>\n"
+            "<blockquote>"
+            "Мат и распространённые оскорбления собеседника будут автоматически удаляться."
+            "</blockquote>"
+        )
+    elif arg == "off":
+        set_antimat(chat_id, False)
+        response_text = (
+            "🛡 <b>Антимат выключен</b>\n"
+            "<blockquote>"
+            "Сообщения снова проходят без фильтра антимата."
+            "</blockquote>"
+        )
+    else:
+        response_text = (
+            "🛡 <b>Антимат</b>\n"
+            "<blockquote>"
+            "Использование: .antimat on / .antimat off"
+            "</blockquote>"
+        )
+
+    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
 
 
 async def send_reply(bot: Bot, chat_id: int, text: str, business_connection_id: str | None, to_dm: bool, parse_mode: str = "HTML"):
@@ -300,7 +526,7 @@ async def cmd_mute(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
         response_text = (
             "🔇 <b>Мут включен</b>\n"
             "<blockquote>"
-            "Сообщения в этом чате будут удаляться, пока не выключите.\n"
+            "Сообщения собеседника будут удаляться, пока не выключите.\n"
             "Выключить: .unmute"
             "</blockquote>"
         )
@@ -308,7 +534,7 @@ async def cmd_mute(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
         response_text = (
             "🔇 <b>Мут включен</b>\n"
             "<blockquote>"
-            f"Сообщения в этом чате будут удаляться {minutes} мин.\n"
+            f"Сообщения собеседника будут удаляться {minutes} мин.\n"
             "Выключить: .unmute"
             "</blockquote>"
         )
@@ -454,8 +680,8 @@ async def cmd_scan(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
 async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot: Bot) -> None:
     chat_id = deleted.chat.id
 
-    if is_muted(chat_id):
-        logger.info("🔇 Мут активен, уведомление об удалении в чате %s пропущено", chat_id)
+    if is_muted(chat_id) or is_antimat(chat_id):
+        logger.info("🔇/🛡 Мут/Антимат активен, уведомление о удалении пропущено")
         return
 
     chat = deleted.chat
@@ -476,7 +702,7 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
             their_deleted.append((msg_id, "(текст не найден в памяти)"))
 
     if my_deleted and not their_deleted:
-        logger.info("🗑️ Удалены только мои сообщения в чате %s, уведомление не отправлено", chat_id)
+        logger.info("🗑️ Удалены только мои сообщения, уведомление не отправлено")
         return
 
     if their_deleted:
@@ -504,10 +730,15 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
         await bot.send_message(chat_id=OWNER_ID, text=notification_text, parse_mode="HTML")
         logger.info("✅ Уведомление об удалении отправлено владельцу")
     except Exception as e:
-        logger.error("❌ Не удалось отправить уведомление об удалении: %s", e)
+        logger.error("❌ Не удалось отправить уведомление: %s", e)
+
+
+LAST_BUSINESS_CONNECTION_ID = None
 
 
 async def main() -> None:
+    global LAST_BUSINESS_CONNECTION_ID
+
     session = AiohttpSession(
         api=TelegramAPIServer.from_base(TELEGRAM_PROXY_URL),
         limit=50,
@@ -517,6 +748,8 @@ async def main() -> None:
 
     @dp.business_connection()
     async def on_business_connection(connection: BusinessConnection) -> None:
+        global LAST_BUSINESS_CONNECTION_ID
+        LAST_BUSINESS_CONNECTION_ID = connection.id
         logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s",
                     connection.id, connection.user.id, connection.is_enabled)
 
@@ -524,37 +757,11 @@ async def main() -> None:
     async def process_business_message(message: Message) -> None:
         await handle_business_message(message, bot)
 
-    @dp.deleted_business_messages()
-    async def process_deleted_business_messages(deleted: BusinessMessagesDeleted) -> None:
-        await handle_deleted_business_messages(deleted, bot)
-
-    try:
-        logger.info("🚀 Запуск polling через Cloudflare Worker...")
-        await dp.start_polling(
-            bot,
-            allowed_updates=[
-                "business_message",
-                "business_connection",
-                "deleted_business_messages",
-            ],
-            polling_timeout=10,
-        )
-    except asyncio.CancelledError:
-        logger.info("🛑 Polling отменён.")
-        raise
-    except Exception as e:
-        logger.error("❌ Ошибка polling: %s", e, exc_info=True)
-        raise
-    finally:
-        await bot.session.close()
-        logger.info("🛑 Бот остановлен.")
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("⏹️ Бот остановлен пользователем.")
-    except Exception as e:
-        logger.critical("💥 Критическая ошибка: %s", e, exc_info=True)
-        raise
+    @dp.message()
+    async def process_private_message(message: Message) -> None:
+        # Обработка ЛС бота (для .nomute — отправка текста в чат)
+        if message.chat.id == OWNER_ID and message.text:
+            if OWNER_ID in PENDING_SEND:
+                target_chat_id = PENDING_SEND.get(OWNER_ID)
+                if target_chat_id:
+                    await send_to_ch
