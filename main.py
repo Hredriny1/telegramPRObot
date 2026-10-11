@@ -837,4 +837,19 @@ async def send_to_chat_from_ls(message: Message, bot: Bot, target_chat_id: int, 
         )
         await bot.send_message(
             chat_id=OWNER_ID,
-            text=f"✅ Доставлено в
+            text=f"✅ Доставлено в чат {target_chat_id}",
+        )
+        logger.info("✅ Текст отправлен из ЛС в чат %s", target_chat_id)
+    except Exception as e:
+        logger.error("❌ Не удалось отправить из ЛС: %s", e)
+        await bot.send_message(chat_id=OWNER_ID, text=f"❌ Ошибка: {e}")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("⏹️ Бот остановлен пользователем.")
+    except Exception as e:
+        logger.critical("💥 Критическая ошибка: %s", e, exc_info=True)
+        raise
