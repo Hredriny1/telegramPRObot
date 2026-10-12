@@ -35,7 +35,7 @@ SITE_API_URL = os.getenv("SITE_API_URL", "").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "").strip()
-YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "").strip()
+YANDEX_FOLDER_ID = "b1gsl9ntdu2uc8u8q10e"
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
@@ -58,7 +58,7 @@ logger.info("OWNER_ID: %s", OWNER_ID)
 logger.info("SITE_API_URL: %s", SITE_API_URL if SITE_API_URL else "не задан")
 logger.info("ADMIN_PASSWORD: %s", "установлен" if ADMIN_PASSWORD else "❌ НЕ УСТАНОВЛЕН")
 logger.info("YANDEX_API_KEY: %s", "установлен" if YANDEX_API_KEY else "❌ НЕ УСТАНОВЛЕН")
-logger.info("YANDEX_FOLDER_ID: %s", "установлен" if YANDEX_FOLDER_ID else "❌ НЕ УСТАНОВЛЕН")
+logger.info("YANDEX_FOLDER_ID: %s", YANDEX_FOLDER_ID)
 logger.info("=" * 70)
 
 # ============================================================
@@ -264,7 +264,7 @@ async def startup_greeting(bot: Bot) -> None:
         api_status = f"❌ ошибка: {e}"
 
     vt_status = "✅ ключ установлен" if VIRUSTOTAL_API_KEY else "❌ ключ не задан"
-    ai_status = "✅ YandexGPT готов" if (YANDEX_API_KEY and YANDEX_FOLDER_ID) else "❌ YandexGPT не настроен"
+    ai_status = "✅ YandexGPT готов" if YANDEX_API_KEY else "❌ YandexGPT не настроен"
 
     greeting_text = (
         "🤖 <b>Бот запущен!</b>\n\n"
@@ -454,7 +454,7 @@ async def cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "modelUri": "yandexgpt-lite",
+                    "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
                     "completionOptions": {"maxTokens": 500, "temperature": 0.7},
                     "messages": [{"role": "user", "text": arg}],
                 },
