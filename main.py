@@ -35,6 +35,7 @@ SITE_API_URL = os.getenv("SITE_API_URL", "").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
@@ -57,6 +58,7 @@ logger.info("OWNER_ID: %s", OWNER_ID)
 logger.info("SITE_API_URL: %s", SITE_API_URL if SITE_API_URL else "не задан")
 logger.info("ADMIN_PASSWORD: %s", "установлен" if ADMIN_PASSWORD else "❌ НЕ УСТАНОВЛЕН")
 logger.info("GROQ_API_KEY: %s", "установлен" if GROQ_API_KEY else "❌ НЕ УСТАНОВЛЕН")
+logger.info("GROQ_MODEL: %s", GROQ_MODEL)
 logger.info("=" * 70)
 
 # ============================================================
@@ -262,7 +264,7 @@ async def startup_greeting(bot: Bot) -> None:
         api_status = f"❌ ошибка: {e}"
 
     vt_status = "✅ ключ установлен" if VIRUSTOTAL_API_KEY else "❌ ключ не задан"
-    ai_status = "✅ Groq готов" if GROQ_API_KEY else "❌ Groq не настроен"
+    ai_status = f"✅ Groq ({GROQ_MODEL})" if GROQ_API_KEY else "❌ Groq не настроен"
 
     greeting_text = (
         "🤖 <b>Бот запущен!</b>\n\n"
@@ -452,7 +454,7 @@ async def cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": GROQ_MODEL,
                     "messages": [{"role": "user", "content": arg}],
                     "max_tokens": 500,
                 },
