@@ -774,3 +774,71 @@ async def send_to_chat_from_ls(message, bot, target_chat_id, text):
 
 
 # ============================================================
+# ЗАПУСК
+# ============================================================
+
+async def main() -> None:
+    session = AiohttpSession(
+        api=TelegramAPIServer.from_base(TELEGRAM_PROXY_URL),
+        limit=50,
+    )
+    bot = Bot(token=BOT_TOKEN, session=session, request_timeout=15)
+    dp = Dispatcher()
+
+    @dp.business_connection()
+    async def on_business_connection(connection: BusinessConnection) -> None:
+        global LAST_BUSINESS_CONNECTION_ID
+        LAST_BUSINESS_CONNECTION_ID = connection.id
+        logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s",
+                    connection.id, connection.user.id, connection.is_enabled)
+
+    @dp.business_message()
+    async def process_business_message(message: Message) -> None:
+        await handle_business_message(message, bot)
+
+    @dp.message()
+    async def process_private_message(message: Message) -> None:
+        if message.chat.id == OWNER_ID and message.text:
+            if OWNER_ID in PENDING_SEND:
+                target_chat_id = PENDING_SEND.get(OWNER_ID)
+                if target_chat_id:
+                    await send_to_chat_from_ls(message, bot, target_chat_id, message.text)
+
+    @dp.deleted_business_messages()
+    async def process_deleted_business_messages(deleted: BusinessMessagesDeleted) -> None:
+        await handle_deleted_business_messages(deleted, bot)
+
+    # ========== ПРИВЕТСТВИЕ ПРИ СТАРТЕ ==========
+    await startup_greeting(bot)
+
+    try:
+        logger.info("🚀 Запуск polling...")
+        await dp.start_polling(
+            bot,
+            allowed_updates=[
+                "business_message",
+                "business_connection",
+                "deleted_business_messages",
+                "message",
+            ],
+            polling_timeout=10,
+        )
+    except asyncio.CancelledError:
+        logger.info("🛑 Polling отменён.")
+        raise
+    except Exception as e:
+        logger.error("❌ Ошибка polling: %s", e, exc_info=True)
+        raise
+    finally:
+        await bot.session.close()
+        logger.info("🛑 Бот остановлен.")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("⏹️ Бот остановлен пользователем.")
+    except Exception as e:
+        logger.critical("💥 Критическая ошибка: %s", e, exc_info=True)
+        raise
