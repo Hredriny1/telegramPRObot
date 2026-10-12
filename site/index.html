@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Panel</title>
+    <title>Bot Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -34,18 +34,21 @@
             justify-content: center;
             background: radial-gradient(circle at 50% 50%, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.95) 100%);
             backdrop-filter: blur(8px);
+            overflow-y: auto;
+            padding: 20px;
         }
         .card {
-            background: rgba(20, 20, 30, 0.7);
+            background: rgba(20, 20, 30, 0.75);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 24px;
-            padding: 48px 56px;
+            padding: 40px 48px;
             text-align: center;
             backdrop-filter: blur(20px);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-            max-width: 420px;
-            width: 90%;
-            transform: translateY(0);
+            max-width: 900px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .card h1 {
@@ -60,12 +63,15 @@
         .card p {
             font-size: 14px;
             color: rgba(255, 255, 255, 0.5);
-            margin-bottom: 32px;
+            margin-bottom: 24px;
         }
         .input-group {
             display: flex;
             gap: 12px;
             margin-bottom: 16px;
+            max-width: 420px;
+            margin-left: auto;
+            margin-right: auto;
         }
         input {
             flex: 1;
@@ -103,25 +109,85 @@
             transform: translateY(-2px);
             box-shadow: 0 12px 24px rgba(99, 102, 241, 0.4);
         }
-        button:active {
-            transform: translateY(0);
-        }
         .error {
             color: #ff6b6b;
             font-size: 13px;
             margin-top: 12px;
             height: 18px;
         }
-        .success-content {
-            display: none;
+        .success-content { display: none; }
+
+        /* Логи */
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .success-content h1 {
-            font-size: 42px;
-            margin-bottom: 4px;
+        .logs-header h2 {
+            font-size: 20px;
+            font-weight: 600;
         }
-        .success-content .sub {
-            font-size: 16px;
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .logs-container {
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .log-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 3px solid #6366f1;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 13px;
+            transition: all 0.3s;
+            animation: slideIn 0.4s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .log-item.command { border-left-color: #8b5cf6; }
+        .log-item.new_message { border-left-color: #3b82f6; }
+        .log-item.deletion { border-left-color: #ef4444; }
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
             color: rgba(255, 255, 255, 0.4);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .log-details {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .log-details span {
+            color: #fff;
+            font-weight: 500;
+        }
+        .empty-logs {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.3);
+            padding: 40px 0;
+            font-size: 14px;
         }
         .fade-out {
             opacity: 0;
@@ -132,14 +198,203 @@
             opacity: 1;
             transform: translateY(0);
         }
+
+        /* Кнопка-таблетка */
+        #control-pill {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            display: none;
+        }
+        #pill-btn {
+            padding: 12px 24px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border: none;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(99,102,241,0.4);
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        #pill-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(99,102,241,0.6);
+        }
+
+        /* Модальное окно */
+        #control-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(8px);
+        }
+        .modal-content {
+            background: #14141e;
+            border-radius: 24px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .modal-content h2 {
+            margin-bottom: 24px;
+            font-size: 22px;
+        }
+        .modal-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .modal-btn {
+            padding: 16px;
+            border-radius: 12px;
+            border: none;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 15px;
+            transition: all 0.3s;
+            width: 100%;
+        }
+        .modal-btn:hover {
+            transform: translateY(-2px);
+        }
+        .btn-restart { background: #f59e0b; }
+        .btn-disconnect { background: #ef4444; }
+        .btn-connect { background: #22c55e; }
+        .btn-console { background: #6366f1; }
+        .btn-close {
+            margin-top: 20px;
+            padding: 12px;
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            border-radius: 12px;
+            cursor: pointer;
+            width: 100%;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        .logout-btn {
+            padding: 8px 16px;
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Консоль */
+        #console-panel {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.95);
+            z-index: 300;
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+        }
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .console-body {
+            flex: 1;
+            background: #0a0a0a;
+            border-radius: 12px;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            overflow-y: auto;
+            color: #22c55e;
+        }
+        .console-input-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .console-input-group input {
+            text-align: left;
+            letter-spacing: normal;
+            font-family: 'Courier New', monospace;
+        }
+        .console-line {
+            margin-bottom: 6px;
+            word-wrap: break-word;
+        }
+        .console-line.error { color: #ef4444; }
+        .console-line.info { color: #3b82f6; }
+        .console-line.success { color: #22c55e; }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
 
+    <!-- Кнопка-таблетка (появляется после входа) -->
+    <div id="control-pill">
+        <button id="pill-btn" onclick="openControlModal()">⚙️ Управление</button>
+    </div>
+
+    <!-- Модальное окно управления -->
+    <div id="control-modal">
+        <div class="modal-content">
+            <h2>Управление подключением</h2>
+            <div class="modal-buttons">
+                <button class="modal-btn btn-restart" onclick="controlAction('restart')">
+                    🔄 Перезапустить подключение
+                </button>
+                <button class="modal-btn btn-disconnect" onclick="controlAction('disconnect')">
+                    🛑 Выключить
+                </button>
+                <button class="modal-btn btn-connect" onclick="controlAction('connect')">
+                    ✅ Запустить
+                </button>
+                <button class="modal-btn btn-console" onclick="openConsole()">
+                    💻 Консоль
+                </button>
+            </div>
+            <button class="btn-close" onclick="closeControlModal()">Закрыть</button>
+        </div>
+    </div>
+
+    <!-- Консоль -->
+    <div id="console-panel">
+        <div class="console-header">
+            <h2>💻 Консоль управления</h2>
+            <button class="logout-btn" onclick="closeConsole()">Закрыть</button>
+        </div>
+        <div class="console-body" id="console-output">
+            <div class="console-line info">Добро пожаловать в консоль управления ботом.</div>
+            <div class="console-line info">Доступные команды:</div>
+            <div class="console-line">  .ban (ID) (time) (reason) — забанить</div>
+            <div class="console-line">  .unban (ID) (reason) — разбанить</div>
+            <div class="console-line">  .idlist (page) — список юзеров</div>
+            <div class="console-line">  .banlist (page) — список банов</div>
+            <div class="console-line">  .checkban (ID) — проверить бан</div>
+            <div class="console-line">  .unconnect — разорвать соединение</div>
+            <div class="console-line">  .connect — восстановить соединение</div>
+            <div class="console-line">  clear — очистить консоль</div>
+        </div>
+        <div class="console-input-group">
+            <input type="text" id="console-input" placeholder="Введите команду..." autocomplete="off">
+            <button onclick="executeConsoleCommand()">Выполнить</button>
+        </div>
+    </div>
+
     <div class="overlay" id="overlay">
         <!-- Экран входа -->
-        <div class="card" id="login-card">
+        <div class="card" id="login-card" style="max-width: 420px;">
             <h1>Access Panel</h1>
             <p>Введите пароль для входа</p>
             <div class="input-group">
@@ -149,10 +404,15 @@
             <div class="error" id="error-msg"></div>
         </div>
 
-        <!-- Экран после входа -->
+        <!-- Экран логов -->
         <div class="card success-content" id="success-card">
-            <h1>Работает</h1>
-            <p class="sub">Панель управления активна</p>
+            <div class="logs-header">
+                <h2><span class="status-dot"></span>Логи бота</h2>
+                <button class="logout-btn" onclick="logout()">Выйти</button>
+            </div>
+            <div class="logs-container" id="logs-container">
+                <div class="empty-logs">Загрузка логов...</div>
+            </div>
         </div>
     </div>
 
@@ -187,7 +447,6 @@
         renderer.toneMappingExposure = 1.2;
         container.appendChild(renderer.domElement);
 
-        // Постобработка (Bloom)
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
         const bloomPass = new UnrealBloomPass(
@@ -196,7 +455,6 @@
         );
         composer.addPass(bloomPass);
 
-        // Освещение
         const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
         scene.add(ambientLight);
 
@@ -208,7 +466,6 @@
         pointLight2.position.set(-10, -10, 10);
         scene.add(pointLight2);
 
-        // Центральный объект (ТорусКнот)
         const knotGeometry = new THREE.TorusKnotGeometry(6, 1.8, 200, 32);
         const knotMaterial = new THREE.MeshStandardMaterial({
             color: 0x6366f1,
@@ -219,7 +476,6 @@
         const knot = new THREE.Mesh(knotGeometry, knotMaterial);
         scene.add(knot);
 
-        // Частицы (звёздное поле)
         const particlesGeometry = new THREE.BufferGeometry();
         const particlesCount = 3000;
         const posArray = new Float32Array(particlesCount * 3);
@@ -237,7 +493,6 @@
         const particles = new THREE.Points(particlesGeometry, particlesMaterial);
         scene.add(particles);
 
-        // Дополнительные кольца
         const ringGeometry = new THREE.TorusGeometry(12, 0.08, 16, 100);
         const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.2 });
         const ring1 = new THREE.Mesh(ringGeometry, ringMaterial);
@@ -248,7 +503,6 @@
         ring2.rotation.y = Math.PI / 4;
         scene.add(ring2);
 
-        // ===== АНИМАЦИЯ =====
         let mouseX = 0, mouseY = 0;
         document.addEventListener('mousemove', (e) => {
             mouseX = (e.clientX / window.innerWidth) * 2 - 1;
@@ -261,28 +515,22 @@
             requestAnimationFrame(animate);
             const elapsed = clock.getElapsedTime();
 
-            // Вращение ТорусКнота
             knot.rotation.x = elapsed * 0.3;
             knot.rotation.y = elapsed * 0.4;
 
-            // Пульсация
             const scale = 1 + Math.sin(elapsed * 2) * 0.03;
             knot.scale.set(scale, scale, scale);
 
-            // Вращение частиц
             particles.rotation.y = elapsed * 0.02;
             particles.rotation.x = elapsed * 0.01;
 
-            // Кольца
             ring1.rotation.z = elapsed * 0.1;
             ring2.rotation.z = -elapsed * 0.15;
 
-            // Параллакс камеры за мышью
             camera.position.x += (mouseX * 3 - camera.position.x) * 0.02;
             camera.position.y += (mouseY * 3 - camera.position.y) * 0.02;
             camera.lookAt(0, 0, 0);
 
-            // Движение света
             pointLight1.position.x = Math.sin(elapsed * 0.5) * 15;
             pointLight1.position.y = Math.cos(elapsed * 0.5) * 15;
             pointLight2.position.x = Math.sin(elapsed * 0.7 + 2) * 15;
@@ -292,7 +540,6 @@
         }
         animate();
 
-        // ===== АДАПТИВНОСТЬ =====
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -300,7 +547,11 @@
             composer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // ===== ПРОВЕРКА ПАРОЛЯ ЧЕРЕЗ API =====
+        // ===== АВТОРИЗАЦИЯ =====
+        let isLoggedIn = false;
+        let logsInterval = null;
+        let adminPassword = '';
+
         window.checkPassword = async function() {
             const input = document.getElementById('password-input');
             const errorEl = document.getElementById('error-msg');
@@ -323,7 +574,10 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    // Успех
+                    isLoggedIn = true;
+                    adminPassword = password;
+                    sessionStorage.setItem('admin_pass', password);
+
                     const loginCard = document.getElementById('login-card');
                     const successCard = document.getElementById('success-card');
 
@@ -332,6 +586,9 @@
                         loginCard.style.display = 'none';
                         successCard.style.display = 'block';
                         successCard.classList.add('fade-in');
+                        document.getElementById('control-pill').style.display = 'block';
+                        loadLogs();
+                        logsInterval = setInterval(loadLogs, 5000);
                     }, 300);
                 } else {
                     errorEl.textContent = 'Неверный пароль';
@@ -344,9 +601,169 @@
             }
         };
 
-        // Enter для отправки
+        window.logout = function() {
+            isLoggedIn = false;
+            adminPassword = '';
+            sessionStorage.removeItem('admin_pass');
+            if (logsInterval) clearInterval(logsInterval);
+            document.getElementById('login-card').style.display = 'block';
+            document.getElementById('login-card').classList.remove('fade-out');
+            document.getElementById('success-card').style.display = 'none';
+            document.getElementById('control-pill').style.display = 'none';
+            document.getElementById('password-input').value = '';
+        };
+
+        async function loadLogs() {
+            try {
+                const response = await fetch('/api/events', {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await response.json();
+
+                const container = document.getElementById('logs-container');
+
+                if (!data.events || data.events.length === 0) {
+                    container.innerHTML = '<div class="empty-logs">Пока нет событий от бота</div>';
+                    return;
+                }
+
+                container.innerHTML = data.events.map(event => {
+                    const date = new Date(event.timestamp);
+                    const timeStr = date.toLocaleString('ru-RU');
+                    const action = event.action || 'unknown';
+                    const d = event.data || {};
+
+                    let actionLabel = action;
+                    let detailsHtml = '';
+                    let itemClass = 'log-item';
+
+                    if (action === 'command') {
+                        actionLabel = '⌨️ Команда';
+                        itemClass += ' command';
+                        detailsHtml = `
+                            <div>Команда: <span>${d.command || '—'}</span></div>
+                            <div>ID чата: <span>${d.chat_id || '—'}</span></div>
+                            ${d.arg ? `<div>Аргумент: <span>${d.arg}</span></div>` : ''}
+                        `;
+                    } else if (action === 'new_message') {
+                        actionLabel = '💬 Новое сообщение';
+                        itemClass += ' new_message';
+                        detailsHtml = `
+                            <div>ID чата: <span>${d.chat_id || '—'}</span></div>
+                            <div>Отправитель: <span>${d.sender_id || '—'}</span></div>
+                            <div>Текст: <span>${escapeHtml(d.text || '—')}</span></div>
+                        `;
+                    } else if (action === 'deletion') {
+                        actionLabel = '🗑️ Удаление';
+                        itemClass += ' deletion';
+                        const texts = (d.texts || []).map(t => escapeHtml(t)).join('<br>');
+                        detailsHtml = `
+                            <div>ID чата: <span>${d.chat_id || '—'}</span></div>
+                            <div>Тексты:<br><span>${texts || '—'}</span></div>
+                        `;
+                    } else {
+                        detailsHtml = `<div>${escapeHtml(JSON.stringify(d))}</div>`;
+                    }
+
+                    return `
+                        <div class="${itemClass}">
+                            <div class="log-header">
+                                <span>${actionLabel}</span>
+                                <span>${timeStr}</span>
+                            </div>
+                            <div class="log-details">${detailsHtml}</div>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (err) {
+                console.error('Ошибка загрузки логов:', err);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ===== УПРАВЛЕНИЕ =====
+        window.openControlModal = function() {
+            document.getElementById('control-modal').style.display = 'flex';
+        };
+
+        window.closeControlModal = function() {
+            document.getElementById('control-modal').style.display = 'none';
+        };
+
+        window.controlAction = async function(action) {
+            try {
+                const res = await fetch('/api/control', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Password': adminPassword
+                    },
+                    body: JSON.stringify({ action })
+                });
+                const data = await res.json();
+                alert(data.message || 'Готово');
+                closeControlModal();
+            } catch (err) {
+                alert('Ошибка: ' + err.message);
+            }
+        };
+
+        // ===== КОНСОЛЬ =====
+        window.openConsole = function() {
+            closeControlModal();
+            document.getElementById('console-panel').style.display = 'flex';
+            document.getElementById('console-input').focus();
+        };
+
+        window.closeConsole = function() {
+            document.getElementById('console-panel').style.display = 'none';
+        };
+
+        window.executeConsoleCommand = async function() {
+            const input = document.getElementById('console-input');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+
+            const output = document.getElementById('console-output');
+            output.innerHTML += `<div class="console-line">> ${escapeHtml(cmd)}</div>`;
+
+            if (cmd === 'clear') {
+                output.innerHTML = '<div class="console-line info">Консоль очищена.</div>';
+                input.value = '';
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/console', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Password': adminPassword
+                    },
+                    body: JSON.stringify({ command: cmd })
+                });
+                const data = await res.json();
+                output.innerHTML += `<div class="console-line ${data.status === 'ok' ? 'success' : 'error'}">${escapeHtml(data.message || JSON.stringify(data))}</div>`;
+            } catch (err) {
+                output.innerHTML += `<div class="console-line error">Ошибка: ${err.message}</div>`;
+            }
+
+            input.value = '';
+            output.scrollTop = output.scrollHeight;
+        };
+
         document.getElementById('password-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') checkPassword();
+        });
+
+        document.getElementById('console-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') executeConsoleCommand();
         });
     </script>
 </body>
