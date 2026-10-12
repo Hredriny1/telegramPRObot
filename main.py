@@ -34,6 +34,9 @@ TELEGRAM_PROXY_URL = "https://lively-brook-2aa0tg-proxy.kichuk2027.workers.dev"
 SITE_API_URL = os.getenv("SITE_API_URL", "").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "").strip()
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "").strip()
+
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
     raise SystemExit(1)
@@ -54,6 +57,8 @@ logger.info("BOT_TOKEN: %s", "***" + BOT_TOKEN[-4:] if len(BOT_TOKEN) > 4 else "
 logger.info("OWNER_ID: %s", OWNER_ID)
 logger.info("SITE_API_URL: %s", SITE_API_URL if SITE_API_URL else "не задан")
 logger.info("ADMIN_PASSWORD: %s", "установлен" if ADMIN_PASSWORD else "❌ НЕ УСТАНОВЛЕН")
+logger.info("YANDEX_API_KEY: %s", "установлен" if YANDEX_API_KEY else "❌ НЕ УСТАНОВЛЕН")
+logger.info("YANDEX_FOLDER_ID: %s", "установлен" if YANDEX_FOLDER_ID else "❌ НЕ УСТАНОВЛЕН")
 logger.info("=" * 70)
 
 # ============================================================
@@ -242,14 +247,12 @@ async def api_list_bans() -> list:
 
 
 # ============================================================
-# ПРИВЕТСТВИЕ ПРИ СТАРТЕ
+# ПРИВЕТСТВИЕ
 # ============================================================
 
 async def startup_greeting(bot: Bot) -> None:
-    """Отправляет приветствие владельцу при старте бота."""
-    logger.info("📨 Отправка приветствия при старте...")
+    logger.info("📨 Отправка приветствия...")
 
-    # Проверяем API банов
     api_status = "❌ не работает"
     try:
         bans = await api_list_bans()
@@ -260,29 +263,24 @@ async def startup_greeting(bot: Bot) -> None:
     except Exception as e:
         api_status = f"❌ ошибка: {e}"
 
-    # Проверяем VirusTotal
     vt_status = "✅ ключ установлен" if VIRUSTOTAL_API_KEY else "❌ ключ не задан"
-
-    # Проверяем базу пользователей
-    users_count = len(USER_DATABASE)
+    ai_status = "✅ YandexGPT готов" if (YANDEX_API_KEY and YANDEX_FOLDER_ID) else "❌ YandexGPT не настроен"
 
     greeting_text = (
         "🤖 <b>Бот запущен!</b>\n\n"
         "<b>Описание:</b>\n"
-        "<blockquote>"
-        "Это бот-секретарь для Telegram Business. "
-        "Он удаляет команды, фильтрует мат, управляет мутом и банами, "
-        "проверяет файлы на вирусы и ведёт логи на сайте."
-        "</blockquote>\n\n"
+        "<blockquote>Бот-секретарь для Telegram Business. Удаляет команды, фильтрует мат, управляет мутом и банами, проверяет файлы на вирусы, отвечает через нейросеть и ведёт логи на сайте.</blockquote>\n\n"
         "<b>Статус систем:</b>\n"
         "<blockquote>"
         f"🌐 Site API: {api_status}\n"
         f"🛡 VirusTotal: {vt_status}\n"
-        f"👥 Пользователей в базе: {users_count}\n"
+        f"🧠 YandexGPT: {ai_status}\n"
+        f"👥 Пользователей в базе: {len(USER_DATABASE)}\n"
         f"🆔 Owner ID: {OWNER_ID}\n"
         "</blockquote>\n\n"
         "<b>Доступные команды:</b>\n"
         "<blockquote>"
+        ".ai (вопрос) — нейросеть\n"
         ".me — профиль\n"
         ".ping — пинг\n"
         ".data — дата\n"
@@ -293,6 +291,7 @@ async def startup_greeting(bot: Bot) -> None:
         ".unmute — снять мут\n"
         ".antimat on/off — антимат\n"
         ".nomute — обход мута\n"
+        ".unnomute — выключить обход\n"
         ".ban — забанить\n"
         ".unban — разбанить\n"
         ".idlist — список юзеров\n"
@@ -303,12 +302,8 @@ async def startup_greeting(bot: Bot) -> None:
     )
 
     try:
-        await bot.send_message(
-            chat_id=OWNER_ID,
-            text=greeting_text,
-            parse_mode="HTML",
-        )
-        logger.info("✅ Приветствие отправлено владельцу")
+        await bot.send_message(chat_id=OWNER_ID, text=greeting_text, parse_mode="HTML")
+        logger.info("✅ Приветствие отправлено")
     except Exception as e:
         logger.error("❌ Не удалось отправить приветствие: %s", e)
 
@@ -327,11 +322,9 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     text = message.text or ""
     bc_id = message.business_connection_id
 
-    # Запоминаем пользователя
     username = message.from_user.username or ""
     USER_DATABASE[sender_id] = {"username": username, "last_seen": time.time()}
 
-    # Проверка бана
     ban_info = await api_check_ban(user_id=sender_id)
     if ban_info:
         logger.info("🚫 Забаненный %s игнорируется", sender_id)
@@ -340,7 +333,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     if text:
         store_message(chat_id, message_id, text, sender_id)
 
-    # ========== АНТИМАТ ==========
+    # АНТИМАТ
     if is_antimat(chat_id) and sender_id != OWNER_ID:
         if text and contains_bad_words(text):
             try:
@@ -353,58 +346,52 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
                 logger.warning("⚠️ Антимат: %s", e)
             return
 
-    # ========== МУТ (только собеседник) ==========
+    # МУТ (только собеседник)
     if is_muted(chat_id) and sender_id != OWNER_ID:
         try:
             await bot.delete_business_messages(
                 business_connection_id=bc_id,
                 message_ids=[message_id],
             )
-            logger.info("🔇 Мут: удалено сообщение собеседника в чате %s", chat_id)
+            logger.info("🔇 Мут: удалено в чате %s", chat_id)
         except Exception as e:
             logger.warning("⚠️ Мут: %s", e)
         return
 
-    # ========== ТОЛЬКО ОТ ВЛАДЕЛЬЦА ==========
+    # ТОЛЬКО ОТ ВЛАДЕЛЬЦА
     if sender_id != OWNER_ID:
         return
 
     if not bc_id:
         return
 
-    # ========== ТОЛЬКО КОМАНДЫ ==========
+    # ТОЛЬКО КОМАНДЫ
     if not text.startswith("."):
         logger.info("📝 Обычное сообщение владельца, не удаляю: %s", text[:50])
         return
 
     cmd, arg, to_dm = parse_command(text)
 
-    # Особые команды
     if cmd == ".nomute":
         await cmd_nomute(message, bot, bc_id)
         asyncio.create_task(bot.delete_business_messages(
-            business_connection_id=bc_id,
-            message_ids=[message_id],
-        ))
+            business_connection_id=bc_id, message_ids=[message_id]))
         return
     elif cmd == ".unnomute":
         await cmd_unnomute(message, bot, bc_id)
         asyncio.create_task(bot.delete_business_messages(
-            business_connection_id=bc_id,
-            message_ids=[message_id],
-        ))
+            business_connection_id=bc_id, message_ids=[message_id]))
         return
 
     # Удаляем команду
     asyncio.create_task(bot.delete_business_messages(
-        business_connection_id=bc_id,
-        message_ids=[message_id],
-    ))
+        business_connection_id=bc_id, message_ids=[message_id]))
 
     reply_chat_id = OWNER_ID if to_dm else chat_id
 
-    # Роутинг
-    if cmd == ".me":
+    if cmd == ".ai":
+        await cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg)
+    elif cmd == ".me":
         await cmd_me(message, bot, bc_id, reply_chat_id, to_dm)
     elif cmd == ".business":
         await cmd_business(message, bot, bc_id, reply_chat_id, to_dm)
@@ -435,7 +422,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
 
 
 # ============================================================
-# КОМАНДЫ (без изменений, кратко)
+# КОМАНДЫ
 # ============================================================
 
 async def send_reply(bot: Bot, chat_id: int, text: str, bc_id: str | None, to_dm: bool, parse_mode: str = "HTML"):
@@ -447,6 +434,43 @@ async def send_reply(bot: Bot, chat_id: int, text: str, bc_id: str | None, to_dm
         logger.info("✅ Ответ отправлен в %s: %s", "ЛС" if to_dm else "чат", chat_id)
     except Exception as e:
         logger.error("❌ Ошибка отправки: %s", e)
+
+
+async def cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg):
+    if not arg:
+        await send_reply(bot, reply_chat_id, "❌ Использование: .ai (вопрос)", bc_id, to_dm)
+        return
+
+    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
+        await send_reply(bot, reply_chat_id, "❌ YandexGPT не настроен.", bc_id, to_dm)
+        return
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                headers={
+                    "Authorization": f"Api-Key {YANDEX_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
+                    "completionOptions": {"maxTokens": 500, "temperature": 0.7},
+                    "messages": [{"role": "user", "text": arg}],
+                },
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    answer = data["result"]["alternatives"][0]["message"]["text"]
+                    await send_reply(bot, reply_chat_id, answer, bc_id, to_dm)
+                else:
+                    error = await resp.text()
+                    logger.error("YandexGPT error: %s", error)
+                    await send_reply(bot, reply_chat_id, f"❌ Ошибка API: {resp.status}", bc_id, to_dm)
+    except Exception as e:
+        logger.error("❌ .ai ошибка: %s", e)
+        await send_reply(bot, reply_chat_id, f"❌ Ошибка: {e}", bc_id, to_dm)
 
 
 async def cmd_me(message, bot, bc_id, reply_chat_id, to_dm):
@@ -808,7 +832,6 @@ async def main() -> None:
     async def process_deleted_business_messages(deleted: BusinessMessagesDeleted) -> None:
         await handle_deleted_business_messages(deleted, bot)
 
-    # ========== ПРИВЕТСТВИЕ ПРИ СТАРТЕ ==========
     await startup_greeting(bot)
 
     try:
