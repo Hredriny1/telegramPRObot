@@ -242,6 +242,78 @@ async def api_list_bans() -> list:
 
 
 # ============================================================
+# ПРИВЕТСТВИЕ ПРИ СТАРТЕ
+# ============================================================
+
+async def startup_greeting(bot: Bot) -> None:
+    """Отправляет приветствие владельцу при старте бота."""
+    logger.info("📨 Отправка приветствия при старте...")
+
+    # Проверяем API банов
+    api_status = "❌ не работает"
+    try:
+        bans = await api_list_bans()
+        if SITE_API_URL:
+            api_status = f"✅ работает ({len(bans)} банов)"
+        else:
+            api_status = "⚠️ SITE_API_URL не задан"
+    except Exception as e:
+        api_status = f"❌ ошибка: {e}"
+
+    # Проверяем VirusTotal
+    vt_status = "✅ ключ установлен" if VIRUSTOTAL_API_KEY else "❌ ключ не задан"
+
+    # Проверяем базу пользователей
+    users_count = len(USER_DATABASE)
+
+    greeting_text = (
+        "🤖 <b>Бот запущен!</b>\n\n"
+        "<b>Описание:</b>\n"
+        "<blockquote>"
+        "Это бот-секретарь для Telegram Business. "
+        "Он удаляет команды, фильтрует мат, управляет мутом и банами, "
+        "проверяет файлы на вирусы и ведёт логи на сайте."
+        "</blockquote>\n\n"
+        "<b>Статус систем:</b>\n"
+        "<blockquote>"
+        f"🌐 Site API: {api_status}\n"
+        f"🛡 VirusTotal: {vt_status}\n"
+        f"👥 Пользователей в базе: {users_count}\n"
+        f"🆔 Owner ID: {OWNER_ID}\n"
+        "</blockquote>\n\n"
+        "<b>Доступные команды:</b>\n"
+        "<blockquote>"
+        ".me — профиль\n"
+        ".ping — пинг\n"
+        ".data — дата\n"
+        ".id — ID чата\n"
+        ".business — business connection\n"
+        ".scan — проверка файла\n"
+        ".mute (time) — мут\n"
+        ".unmute — снять мут\n"
+        ".antimat on/off — антимат\n"
+        ".nomute — обход мута\n"
+        ".ban — забанить\n"
+        ".unban — разбанить\n"
+        ".idlist — список юзеров\n"
+        ".checkban — проверка бана\n"
+        ".banlist — список банов"
+        "</blockquote>\n\n"
+        "<i>Флаг -s в конце команды отправляет ответ в ЛС.</i>"
+    )
+
+    try:
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=greeting_text,
+            parse_mode="HTML",
+        )
+        logger.info("✅ Приветствие отправлено владельцу")
+    except Exception as e:
+        logger.error("❌ Не удалось отправить приветствие: %s", e)
+
+
+# ============================================================
 # ОСНОВНАЯ ЛОГИКА
 # ============================================================
 
@@ -268,7 +340,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     if text:
         store_message(chat_id, message_id, text, sender_id)
 
-    # ========== АНТИМАТ (только собеседник) ==========
+    # ========== АНТИМАТ ==========
     if is_antimat(chat_id) and sender_id != OWNER_ID:
         if text and contains_bad_words(text):
             try:
@@ -281,8 +353,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
                 logger.warning("⚠️ Антимат: %s", e)
             return
 
-    # ========== МУТ (ТОЛЬКО ДЛЯ СОБЕСЕДНИКА!) ==========
-    # ВАЖНО: sender_id != OWNER_ID — мои сообщения НЕ удаляются
+    # ========== МУТ (только собеседник) ==========
     if is_muted(chat_id) and sender_id != OWNER_ID:
         try:
             await bot.delete_business_messages(
@@ -301,10 +372,8 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
     if not bc_id:
         return
 
-    # ========== ПРОВЕРКА: ЭТО КОМАНДА? ==========
-    # Команда начинается с "." — только тогда удаляем
+    # ========== ТОЛЬКО КОМАНДЫ ==========
     if not text.startswith("."):
-        # Обычное сообщение владельца — НЕ ТРОГАЕМ
         logger.info("📝 Обычное сообщение владельца, не удаляю: %s", text[:50])
         return
 
@@ -326,7 +395,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
         ))
         return
 
-    # Удаляем ТОЛЬКО команду (в фоне)
+    # Удаляем команду
     asyncio.create_task(bot.delete_business_messages(
         business_connection_id=bc_id,
         message_ids=[message_id],
@@ -366,7 +435,7 @@ async def handle_business_message(message: Message, bot: Bot) -> None:
 
 
 # ============================================================
-# КОМАНДЫ
+# КОМАНДЫ (без изменений, кратко)
 # ============================================================
 
 async def send_reply(bot: Bot, chat_id: int, text: str, bc_id: str | None, to_dm: bool, parse_mode: str = "HTML"):
@@ -380,46 +449,32 @@ async def send_reply(bot: Bot, chat_id: int, text: str, bc_id: str | None, to_dm
         logger.error("❌ Ошибка отправки: %s", e)
 
 
-async def cmd_me(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool) -> None:
+async def cmd_me(message, bot, bc_id, reply_chat_id, to_dm):
     user_id = message.from_user.id
     username = message.from_user.username
     username_str = f"@{username}" if username else "не указан"
     role = "creator" if user_id == OWNER_ID else "user"
-    response_text = (
-        "<b>Ваш профиль</b>\n"
-        "<blockquote>"
-        f"ID: {user_id}\n"
-        f"Ник: {username_str}\n"
-        f"Роль: {role}"
-        "</blockquote>"
-    )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+    await send_reply(bot, reply_chat_id,
+        "<b>Ваш профиль</b>\n<blockquote>"
+        f"ID: {user_id}\nНик: {username_str}\nРоль: {role}"
+        "</blockquote>", bc_id, to_dm)
 
 
-async def cmd_business(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool) -> None:
-    response_text = (
-        "<b>Business connection</b>\n"
-        "<blockquote>"
-        f"ID: {bc_id}\n"
-        f"User ID: {message.from_user.id}\n"
-        f"Chat ID: {message.chat.id}"
-        "</blockquote>"
-    )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+async def cmd_business(message, bot, bc_id, reply_chat_id, to_dm):
+    await send_reply(bot, reply_chat_id,
+        "<b>Business connection</b>\n<blockquote>"
+        f"ID: {bc_id}\nUser ID: {message.from_user.id}\nChat ID: {message.chat.id}"
+        "</blockquote>", bc_id, to_dm)
 
 
-async def cmd_id(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool) -> None:
-    response_text = (
-        "<b>Идентификаторы</b>\n"
-        "<blockquote>"
-        f"Ваш Telegram ID: {message.from_user.id}\n"
-        f"ID чата: {message.chat.id}"
-        "</blockquote>"
-    )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+async def cmd_id(message, bot, bc_id, reply_chat_id, to_dm):
+    await send_reply(bot, reply_chat_id,
+        "<b>Идентификаторы</b>\n<blockquote>"
+        f"Ваш Telegram ID: {message.from_user.id}\nID чата: {message.chat.id}"
+        "</blockquote>", bc_id, to_dm)
 
 
-async def cmd_ping(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool) -> None:
+async def cmd_ping(message, bot, bc_id, reply_chat_id, to_dm):
     api_ping = 0
     try:
         start = time.time()
@@ -442,19 +497,13 @@ async def cmd_ping(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
     except Exception:
         bot_username = "неизвестно"
     status = "online" if api_ping >= 0 else "offline"
-    response_text = (
-        "<b>Ping</b>\n"
-        "<blockquote>"
-        f"API: {api_ping}ms\n"
-        f"TCP: {tcp_ping}ms\n"
-        f"Bot: {bot_username}\n"
-        f"Status: {status}"
-        "</blockquote>"
-    )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+    await send_reply(bot, reply_chat_id,
+        "<b>Ping</b>\n<blockquote>"
+        f"API: {api_ping}ms\nTCP: {tcp_ping}ms\nBot: {bot_username}\nStatus: {status}"
+        "</blockquote>", bc_id, to_dm)
 
 
-async def cmd_data(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool) -> None:
+async def cmd_data(message, bot, bc_id, reply_chat_id, to_dm):
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     days_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
     months_ru = ["января", "февраля", "марта", "апреля", "мая", "июня",
@@ -462,17 +511,13 @@ async def cmd_data(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
     day_name = days_ru[now.weekday()]
     month_name = months_ru[now.month - 1]
     date_str = f"{day_name}, {now.day} {month_name} {now.year}."
-    response_text = (
-        "<b>📅 Текущая дата</b>\n"
-        "<blockquote>"
-        f"{date_str}\n"
-        "RU: Moscow/Rostov"
-        "</blockquote>"
-    )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+    await send_reply(bot, reply_chat_id,
+        "<b>📅 Текущая дата</b>\n<blockquote>"
+        f"{date_str}\nRU: Moscow/Rostov"
+        "</blockquote>", bc_id, to_dm)
 
 
-async def cmd_mute(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+async def cmd_mute(message, bot, bc_id, reply_chat_id, to_dm, arg):
     chat_id = message.chat.id
     minutes = None
     if arg:
@@ -484,95 +529,68 @@ async def cmd_mute(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, t
             minutes = None
     set_mute(chat_id, minutes)
     if minutes is None:
-        response_text = (
-            "🔇 <b>Мут включен</b>\n"
-            "<blockquote>"
-            "Сообщения собеседника будут удаляться, пока не выключите.\n"
-            "Выключить: .unmute"
-            "</blockquote>"
-        )
+        text = "🔇 <b>Мут включен</b>\n<blockquote>Сообщения собеседника будут удаляться, пока не выключите.\nВыключить: .unmute</blockquote>"
     else:
-        response_text = (
-            "🔇 <b>Мут включен</b>\n"
-            "<blockquote>"
-            f"Сообщения собеседника будут удаляться {minutes} мин.\n"
-            "Выключить: .unmute"
-            "</blockquote>"
-        )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+        text = f"🔇 <b>Мут включен</b>\n<blockquote>Сообщения собеседника будут удаляться {minutes} мин.\nВыключить: .unmute</blockquote>"
+    await send_reply(bot, reply_chat_id, text, bc_id, to_dm)
 
 
-async def cmd_unmute(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool) -> None:
+async def cmd_unmute(message, bot, bc_id, reply_chat_id, to_dm):
     clear_mute(message.chat.id)
     await send_reply(bot, reply_chat_id, "🔊 <b>Мут выключен</b>", bc_id, to_dm)
 
 
-async def cmd_antimat(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+async def cmd_antimat(message, bot, bc_id, reply_chat_id, to_dm, arg):
     chat_id = message.chat.id
     arg = arg.lower().strip()
     if arg == "on":
         set_antimat(chat_id, True)
-        response_text = (
-            "🛡 <b>Антимат включён</b>\n"
-            "<blockquote>Мат и оскорбления собеседника будут удаляться.</blockquote>"
-        )
+        text = "🛡 <b>Антимат включён</b>\n<blockquote>Мат и оскорбления собеседника будут удаляться.</blockquote>"
     elif arg == "off":
         set_antimat(chat_id, False)
-        response_text = (
-            "🛡 <b>Антимат выключен</b>\n"
-            "<blockquote>Сообщения проходят без фильтра.</blockquote>"
-        )
+        text = "🛡 <b>Антимат выключен</b>\n<blockquote>Сообщения проходят без фильтра.</blockquote>"
     else:
-        response_text = "🛡 Использование: .antimat on / .antimat off"
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+        text = "🛡 Использование: .antimat on / .antimat off"
+    await send_reply(bot, reply_chat_id, text, bc_id, to_dm)
 
 
-async def cmd_nomute(message: Message, bot: Bot, bc_id: str) -> None:
+async def cmd_nomute(message, bot, bc_id):
     global LAST_BUSINESS_CONNECTION_ID
     chat_id = message.chat.id
     LAST_BUSINESS_CONNECTION_ID = bc_id
     PENDING_SEND[OWNER_ID] = chat_id
     try:
-        await bot.send_message(
-            chat_id=chat_id,
+        await bot.send_message(chat_id=chat_id,
             text="🛡 <b>Режим обхода мута включён</b>\n<blockquote>Пишите сообщения в ЛС бота.</blockquote>",
-            parse_mode="HTML",
-            business_connection_id=bc_id,
-        )
+            parse_mode="HTML", business_connection_id=bc_id)
     except Exception as e:
         logger.error("❌ .nomute: %s", e)
     try:
-        await bot.send_message(
-            chat_id=OWNER_ID,
+        await bot.send_message(chat_id=OWNER_ID,
             text="🛡 <b>Режим обхода мута был включен</b>\n\n⭕ <b>Пишите текст мне в ЛС.</b>\n⭕ <b>Он будет отправлен в нужный чат.</b>",
-            parse_mode="HTML",
-        )
+            parse_mode="HTML")
     except Exception as e:
         logger.error("❌ .nomute ЛС: %s", e)
 
 
-async def cmd_unnomute(message: Message, bot: Bot, bc_id: str) -> None:
+async def cmd_unnomute(message, bot, bc_id):
     PENDING_SEND.pop(OWNER_ID, None)
     try:
-        await bot.send_message(
-            chat_id=message.chat.id,
+        await bot.send_message(chat_id=message.chat.id,
             text="🛡 <b>Режим обхода мута выключен</b>",
-            parse_mode="HTML",
-            business_connection_id=bc_id,
-        )
+            parse_mode="HTML", business_connection_id=bc_id)
     except Exception as e:
         logger.error("❌ .unnomute: %s", e)
 
 
-async def cmd_scan(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool) -> None:
+async def cmd_scan(message, bot, bc_id, reply_chat_id, to_dm):
     pass
 
 
-async def cmd_ban(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+async def cmd_ban(message, bot, bc_id, reply_chat_id, to_dm, arg):
     parts = arg.split(maxsplit=2)
     if len(parts) < 1 or not parts[0]:
-        await send_reply(bot, reply_chat_id,
-            "❌ Использование: .ban (ID/username) (time) (reason)", bc_id, to_dm)
+        await send_reply(bot, reply_chat_id, "❌ Использование: .ban (ID/username) (time) (reason)", bc_id, to_dm)
         return
     target = parts[0]
     time_str = parts[1] if len(parts) > 1 else "forever"
@@ -589,29 +607,22 @@ async def cmd_ban(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to
                 target_id = uid
                 break
     if not target_id:
-        await send_reply(bot, reply_chat_id,
-            f"❌ Пользователь @{target_username} не найден в базе.", bc_id, to_dm)
+        await send_reply(bot, reply_chat_id, f"❌ Пользователь @{target_username} не найден.", bc_id, to_dm)
         return
     success = await api_add_ban(target_id, target_username, time_str, reason)
     if success:
-        response_text = (
-            "🚫 <b>Пользователь заблокирован</b>\n"
-            "<blockquote>"
-            f"ID: {target_id}, @{target_username}.\n"
-            f"Time: {time_str}.\n"
-            f"Reason: {reason}."
-            "</blockquote>"
-        )
+        text = ("🚫 <b>Пользователь заблокирован</b>\n<blockquote>"
+                f"ID: {target_id}, @{target_username}.\nTime: {time_str}.\nReason: {reason}."
+                "</blockquote>")
     else:
-        response_text = "❌ Не удалось добавить бан"
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+        text = "❌ Не удалось добавить бан"
+    await send_reply(bot, reply_chat_id, text, bc_id, to_dm)
 
 
-async def cmd_unban(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+async def cmd_unban(message, bot, bc_id, reply_chat_id, to_dm, arg):
     parts = arg.split(maxsplit=1)
     if not parts or not parts[0]:
-        await send_reply(bot, reply_chat_id,
-            "❌ Использование: .unban (ID/username) (reason)", bc_id, to_dm)
+        await send_reply(bot, reply_chat_id, "❌ Использование: .unban (ID/username) (reason)", bc_id, to_dm)
         return
     target = parts[0]
     reason = parts[1] if len(parts) > 1 else "не указана"
@@ -628,19 +639,15 @@ async def cmd_unban(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, 
                 break
     success = await api_remove_ban(target_id, target_username)
     if success:
-        response_text = (
-            "✅ <b>Пользователь разбанен</b>\n"
-            "<blockquote>"
-            f"ID: {target_id}, @{target_username}.\n"
-            f"Reason: {reason}."
-            "</blockquote>"
-        )
+        text = ("✅ <b>Пользователь разбанен</b>\n<blockquote>"
+                f"ID: {target_id}, @{target_username}.\nReason: {reason}."
+                "</blockquote>")
     else:
-        response_text = "❌ Не удалось снять бан"
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+        text = "❌ Не удалось снять бан"
+    await send_reply(bot, reply_chat_id, text, bc_id, to_dm)
 
 
-async def cmd_idlist(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+async def cmd_idlist(message, bot, bc_id, reply_chat_id, to_dm, arg):
     page = 1
     if arg:
         try:
@@ -659,20 +666,15 @@ async def cmd_idlist(message: Message, bot: Bot, bc_id: str, reply_chat_id: int,
     for i, (uid, info) in enumerate(page_users, start=start + 1):
         uname = info["username"] or "нет"
         lines.append(f"{i}. ID: {uid}, @{uname}.")
-    response_text = (
-        "🔢 <b>Список пользователей</b>\n"
-        "<blockquote>"
-        + "\n".join(lines) +
-        f"\n\nСтраница {page}/{total_pages}"
-        "</blockquote>"
-    )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+    text = ("🔢 <b>Список пользователей</b>\n<blockquote>"
+            + "\n".join(lines) + f"\n\nСтраница {page}/{total_pages}"
+            "</blockquote>")
+    await send_reply(bot, reply_chat_id, text, bc_id, to_dm)
 
 
-async def cmd_checkban(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+async def cmd_checkban(message, bot, bc_id, reply_chat_id, to_dm, arg):
     if not arg:
-        await send_reply(bot, reply_chat_id,
-            "❌ Использование: .checkban (ID/username)", bc_id, to_dm)
+        await send_reply(bot, reply_chat_id, "❌ Использование: .checkban (ID/username)", bc_id, to_dm)
         return
     target = arg.strip().lstrip("@")
     target_id = None
@@ -685,26 +687,19 @@ async def cmd_checkban(message: Message, bot: Bot, bc_id: str, reply_chat_id: in
                 break
     ban_info = await api_check_ban(user_id=target_id, username=target)
     if ban_info:
-        response_text = (
-            "🔰 <b>Проверка пользователя</b>\n"
-            "<blockquote>"
-            f"ID: {ban_info.get('id', target_id)}, @{ban_info.get('username', target)}.\n"
-            f"Time: {ban_info.get('time', 'forever')}.\n"
-            f"Reason: {ban_info.get('reason', 'не указана')}."
-            "</blockquote>"
-        )
+        text = ("🔰 <b>Проверка пользователя</b>\n<blockquote>"
+                f"ID: {ban_info.get('id', target_id)}, @{ban_info.get('username', target)}.\n"
+                f"Time: {ban_info.get('time', 'forever')}.\n"
+                f"Reason: {ban_info.get('reason', 'не указана')}."
+                "</blockquote>")
     else:
-        response_text = (
-            "🔰 <b>Проверка пользователя</b>\n"
-            "<blockquote>"
-            f"ID: {target_id or target}, @{target}.\n"
-            "Не в бане."
-            "</blockquote>"
-        )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+        text = ("🔰 <b>Проверка пользователя</b>\n<blockquote>"
+                f"ID: {target_id or target}, @{target}.\nНе в бане."
+                "</blockquote>")
+    await send_reply(bot, reply_chat_id, text, bc_id, to_dm)
 
 
-async def cmd_banlist(message: Message, bot: Bot, bc_id: str, reply_chat_id: int, to_dm: bool, arg: str) -> None:
+async def cmd_banlist(message, bot, bc_id, reply_chat_id, to_dm, arg):
     page = 1
     if arg:
         try:
@@ -722,17 +717,13 @@ async def cmd_banlist(message: Message, bot: Bot, bc_id: str, reply_chat_id: int
     lines = []
     for i, b in enumerate(page_bans, start=start + 1):
         lines.append(f"{i}. ID: {b.get('id', '—')}, @{b.get('username', 'нет')}. ({b.get('time', 'forever')})")
-    response_text = (
-        "📋 <b>Бан-лист</b>\n"
-        "<blockquote>"
-        + "\n".join(lines) +
-        f"\n\nСтраница {page}/{total_pages}"
-        "</blockquote>"
-    )
-    await send_reply(bot, reply_chat_id, response_text, bc_id, to_dm)
+    text = ("📋 <b>Бан-лист</b>\n<blockquote>"
+            + "\n".join(lines) + f"\n\nСтраница {page}/{total_pages}"
+            "</blockquote>")
+    await send_reply(bot, reply_chat_id, text, bc_id, to_dm)
 
 
-async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot: Bot) -> None:
+async def handle_deleted_business_messages(deleted, bot):
     chat_id = deleted.chat.id
     if is_muted(chat_id) or is_antimat(chat_id):
         return
@@ -769,7 +760,7 @@ async def handle_deleted_business_messages(deleted: BusinessMessagesDeleted, bot
         logger.error("❌ Уведомление: %s", e)
 
 
-async def send_to_chat_from_ls(message: Message, bot: Bot, target_chat_id: int, text: str) -> None:
+async def send_to_chat_from_ls(message, bot, target_chat_id, text):
     global LAST_BUSINESS_CONNECTION_ID
     bc_id = LAST_BUSINESS_CONNECTION_ID
     if not bc_id:
@@ -783,68 +774,3 @@ async def send_to_chat_from_ls(message: Message, bot: Bot, target_chat_id: int, 
 
 
 # ============================================================
-# ЗАПУСК
-# ============================================================
-
-async def main() -> None:
-    session = AiohttpSession(
-        api=TelegramAPIServer.from_base(TELEGRAM_PROXY_URL),
-        limit=50,
-    )
-    bot = Bot(token=BOT_TOKEN, session=session, request_timeout=15)
-    dp = Dispatcher()
-
-    @dp.business_connection()
-    async def on_business_connection(connection: BusinessConnection) -> None:
-        global LAST_BUSINESS_CONNECTION_ID
-        LAST_BUSINESS_CONNECTION_ID = connection.id
-        logger.info("🔗 BUSINESS CONNECTION: id=%s, user_id=%s, is_enabled=%s",
-                    connection.id, connection.user.id, connection.is_enabled)
-
-    @dp.business_message()
-    async def process_business_message(message: Message) -> None:
-        await handle_business_message(message, bot)
-
-    @dp.message()
-    async def process_private_message(message: Message) -> None:
-        if message.chat.id == OWNER_ID and message.text:
-            if OWNER_ID in PENDING_SEND:
-                target_chat_id = PENDING_SEND.get(OWNER_ID)
-                if target_chat_id:
-                    await send_to_chat_from_ls(message, bot, target_chat_id, message.text)
-
-    @dp.deleted_business_messages()
-    async def process_deleted_business_messages(deleted: BusinessMessagesDeleted) -> None:
-        await handle_deleted_business_messages(deleted, bot)
-
-    try:
-        logger.info("🚀 Запуск polling...")
-        await dp.start_polling(
-            bot,
-            allowed_updates=[
-                "business_message",
-                "business_connection",
-                "deleted_business_messages",
-                "message",
-            ],
-            polling_timeout=10,
-        )
-    except asyncio.CancelledError:
-        logger.info("🛑 Polling отменён.")
-        raise
-    except Exception as e:
-        logger.error("❌ Ошибка polling: %s", e, exc_info=True)
-        raise
-    finally:
-        await bot.session.close()
-        logger.info("🛑 Бот остановлен.")
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("⏹️ Бот остановлен пользователем.")
-    except Exception as e:
-        logger.critical("💥 Критическая ошибка: %s", e, exc_info=True)
-        raise
