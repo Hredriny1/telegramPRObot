@@ -1,46 +1,70 @@
+import { encrypt } from './crypto.js';
+
 export async function onRequestPost(context) {
     const { request, env } = context;
 
     try {
         const body = await request.json();
-        const { password } = body;
+        const { action, data } = body;
 
-        // Пароль хранится в переменной окружения Cloudflare Pages
-        // Настрой её в панели: Settings -> Environment variables -> ADMIN_PASSWORD
-        const expectedPassword = env.ADMIN_PASSWORD || 'ADMIN';
-
-        if (password === expectedPassword) {
-            return new Response(JSON.stringify({ success: true }), {
-                status: 200,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                }
-            });
+        if (action === 'ping') {
+            return jsonResponse({ status: 'ok', message: 'API работает', timestamp: Date.now() });
         }
 
-        return new Response(JSON.stringify({ success: false }), {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
+        // Шифруем данные перед сохранением
+        const encrypted = await encrypt(env.ENCRYPTION_KEY, {
+            action: action,
+            data: data,
+            timestamp: Date.now(),
+        });
+
+        // Читаем текущий список событий
+        let events = [];
+        try {
+            const stored = await env.BOT_EVENTS.get('events');
+            if (stored) {
+                events = JSON.parse(stored);
             }
+        } catch (e) {
+            events = [];
+        }
+
+        // Добавляем новое событие (в зашифрованном виде)
+        events.unshift({
+            id: crypto.randomUUID(),
+            encrypted: encrypted,
+            timestamp: Date.now(),
         });
+
+        // Ограничиваем 500 событиями
+        if (events.length > 500) {
+            events = events.slice(0, 500);
+        }
+
+        await env.BOT_EVENTS.put('events', JSON.stringify(events));
+
+        return jsonResponse({ status: 'ok', total: events.length });
     } catch (err) {
-        return new Response(JSON.stringify({ success: false, error: err.message }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        return jsonResponse({ status: 'error', error: err.message }, 500);
     }
 }
 
-// Обработка CORS preflight (для запросов с бота)
 export async function onRequestOptions() {
     return new Response(null, {
         headers: {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
-        }
+            'Access-Control-Allow-Headers': 'Content-Type',
+        },
+    });
+}
+
+function jsonResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status: status,
+        headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+        },
     });
 }
