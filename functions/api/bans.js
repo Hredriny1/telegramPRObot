@@ -12,12 +12,9 @@ export async function onRequestPost(context) {
     try {
         const stored = await env.BOT_EVENTS.get('bans');
         bans = stored ? JSON.parse(stored) : [];
-    } catch (e) {
-        bans = [];
-    }
+    } catch (e) { bans = []; }
 
     if (action === 'add') {
-        // Проверка на дубликат
         const exists = bans.find(b => b.id === ban.id || (ban.username && b.username === ban.username));
         if (exists) {
             return jsonResponse({ status: 'error', message: 'Уже в бане' }, 400);
@@ -28,22 +25,15 @@ export async function onRequestPost(context) {
     } else if (action === 'list') {
         return jsonResponse({ status: 'ok', bans: bans });
     } else if (action === 'check') {
-        const found = bans.find(b => b.id === ban.id || b.username === ban.username);
+        const found = bans.find(b => 
+            (ban.id && b.id === ban.id) || 
+            (ban.username && b.username === ban.username)
+        );
         return jsonResponse({ status: 'ok', banned: !!found, ban: found || null });
     }
 
     await env.BOT_EVENTS.put('bans', JSON.stringify(bans));
     return jsonResponse({ status: 'ok', total: bans.length });
-}
-
-function jsonResponse(data, status = 200) {
-    return new Response(JSON.stringify(data), {
-        status: status,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-        },
-    });
 }
 
 export async function onRequestOptions() {
@@ -53,5 +43,12 @@ export async function onRequestOptions() {
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Password',
         },
+    });
+}
+
+function jsonResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status: status,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
 }
