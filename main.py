@@ -34,7 +34,7 @@ TELEGRAM_PROXY_URL = "https://lively-brook-2aa0tg-proxy.kichuk2027.workers.dev"
 SITE_API_URL = os.getenv("SITE_API_URL", "").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
@@ -56,7 +56,7 @@ logger.info("BOT_TOKEN: %s", "***" + BOT_TOKEN[-4:] if len(BOT_TOKEN) > 4 else "
 logger.info("OWNER_ID: %s", OWNER_ID)
 logger.info("SITE_API_URL: %s", SITE_API_URL if SITE_API_URL else "не задан")
 logger.info("ADMIN_PASSWORD: %s", "установлен" if ADMIN_PASSWORD else "❌ НЕ УСТАНОВЛЕН")
-logger.info("DEEPSEEK_API_KEY: %s", "установлен" if DEEPSEEK_API_KEY else "❌ НЕ УСТАНОВЛЕН")
+logger.info("GROQ_API_KEY: %s", "установлен" if GROQ_API_KEY else "❌ НЕ УСТАНОВЛЕН")
 logger.info("=" * 70)
 
 # ============================================================
@@ -262,7 +262,7 @@ async def startup_greeting(bot: Bot) -> None:
         api_status = f"❌ ошибка: {e}"
 
     vt_status = "✅ ключ установлен" if VIRUSTOTAL_API_KEY else "❌ ключ не задан"
-    ai_status = "✅ DeepSeek готов" if DEEPSEEK_API_KEY else "❌ DeepSeek не настроен"
+    ai_status = "✅ Groq готов" if GROQ_API_KEY else "❌ Groq не настроен"
 
     greeting_text = (
         "🤖 <b>Бот запущен!</b>\n\n"
@@ -272,7 +272,7 @@ async def startup_greeting(bot: Bot) -> None:
         "<blockquote>"
         f"🌐 Site API: {api_status}\n"
         f"🛡 VirusTotal: {vt_status}\n"
-        f"🧠 DeepSeek: {ai_status}\n"
+        f"🧠 Groq AI: {ai_status}\n"
         f"👥 Пользователей в базе: {len(USER_DATABASE)}\n"
         f"🆔 Owner ID: {OWNER_ID}\n"
         "</blockquote>\n\n"
@@ -439,20 +439,20 @@ async def cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg):
         await send_reply(bot, reply_chat_id, "❌ Использование: .ai (вопрос)", bc_id, to_dm)
         return
 
-    if not DEEPSEEK_API_KEY:
-        await send_reply(bot, reply_chat_id, "❌ DeepSeek не настроен.", bc_id, to_dm)
+    if not GROQ_API_KEY:
+        await send_reply(bot, reply_chat_id, "❌ Groq не настроен.", bc_id, to_dm)
         return
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.deepseek.com/v1/chat/completions",
+                "https://api.groq.com/openai/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": arg}],
                     "max_tokens": 500,
                 },
@@ -464,7 +464,7 @@ async def cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg):
                     await send_reply(bot, reply_chat_id, answer, bc_id, to_dm)
                 else:
                     error = await resp.text()
-                    logger.error("DeepSeek error: %s", error)
+                    logger.error("Groq error: %s", error)
                     await send_reply(bot, reply_chat_id, f"❌ Ошибка API: {resp.status}", bc_id, to_dm)
     except Exception as e:
         logger.error("❌ .ai ошибка: %s", e)
