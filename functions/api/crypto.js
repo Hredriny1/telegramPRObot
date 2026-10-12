@@ -1,6 +1,3 @@
-// AES-256-GCM шифрование через Web Crypto API
-// Ключ хранится в переменной окружения ENCRYPTION_KEY (32 байта, hex)
-
 const ENCODER = new TextEncoder();
 const DECODER = new TextDecoder();
 
@@ -35,7 +32,6 @@ export async function encrypt(secret, data) {
         key,
         encoded
     );
-    // Формат: base64(iv).base64(ciphertext)
     const ivB64 = btoa(String.fromCharCode(...iv));
     const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
     return `${ivB64}.${ctB64}`;
