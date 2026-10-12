@@ -441,7 +441,7 @@ async def cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg):
         await send_reply(bot, reply_chat_id, "❌ Использование: .ai (вопрос)", bc_id, to_dm)
         return
 
-    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
+    if not YANDEX_API_KEY:
         await send_reply(bot, reply_chat_id, "❌ YandexGPT не настроен.", bc_id, to_dm)
         return
 
@@ -454,7 +454,7 @@ async def cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
+                    "modelUri": "yandexgpt-lite",
                     "completionOptions": {"maxTokens": 500, "temperature": 0.7},
                     "messages": [{"role": "user", "text": arg}],
                 },
