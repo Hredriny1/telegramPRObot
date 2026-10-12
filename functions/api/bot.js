@@ -1,3 +1,5 @@
+import { encrypt } from './crypto.js';
+
 export async function onRequestPost(context) {
     const { request, env } = context;
 
@@ -5,44 +7,37 @@ export async function onRequestPost(context) {
         const body = await request.json();
         const { action, data } = body;
 
-        // Проверка секретного ключа (чтобы только твой бот мог стучаться)
-        const botSecret = env.BOT_SECRET || 'change-me';
-
-        // Простая логика: сохраняем данные в KV (если настроишь) или просто возвращаем
-        // Для начала можно сделать заглушку
-
         if (action === 'ping') {
-            return new Response(JSON.stringify({
-                status: 'ok',
-                message: 'API работает',
-                timestamp: Date.now()
-            }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return jsonResponse({ status: 'ok', message: 'API работает', timestamp: Date.now() });
         }
 
-        if (action === 'save_data') {
-            // Здесь можно сохранять данные в KV или D1
-            // Пока просто возвращаем эхо
-            return new Response(JSON.stringify({
-                status: 'ok',
-                received: data
-            }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
-
-        return new Response(JSON.stringify({ status: 'error', message: 'Unknown action' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
+        // Шифруем данные
+        const encrypted = await encrypt(env.ENCRYPTION_KEY, {
+            action: action,
+            data: data,
+            timestamp: Date.now(),
         });
+
+        // Читаем список событий
+        let events = [];
+        try {
+            const stored = await env.BOT_EVENTS.get('events');
+            if (stored) events = JSON.parse(stored);
+        } catch (e) { events = []; }
+
+        events.unshift({
+            id: crypto.randomUUID(),
+            encrypted: encrypted,
+            timestamp: Date.now(),
+        });
+
+        if (events.length > 500) events = events.slice(0, 500);
+
+        await env.BOT_EVENTS.put('events', JSON.stringify(events));
+
+        return jsonResponse({ status: 'ok', total: events.length });
     } catch (err) {
-        return new Response(JSON.stringify({ status: 'error', error: err.message }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        return jsonResponse({ status: 'error', error: err.message }, 500);
     }
 }
 
@@ -51,7 +46,14 @@ export async function onRequestOptions() {
         headers: {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
-        }
+            'Access-Control-Allow-Headers': 'Content-Type',
+        },
+    });
+}
+
+function jsonResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status: status,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
 }
