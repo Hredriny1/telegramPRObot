@@ -7,17 +7,27 @@ export async function onRequestGet(context) {
 
     const statusRaw = await env.BOT_EVENTS.get('bot_status');
     if (!statusRaw) {
-        return jsonResponse({ online: false, last_heartbeat: null });
+        return jsonResponse({
+            online: false,
+            last_heartbeat: null,
+            healthcheck_ok: false,
+            ping: null,
+            api_ping: null,
+            site_ping: null,
+        });
     }
 
     const status = JSON.parse(statusRaw);
     const age = Date.now() - (status.last_heartbeat || 0);
-    const online = age < 90000; // онлайн, если heartbeat был меньше 90 секунд назад
+    const online = age < 90000;
 
     return jsonResponse({
         online: online,
         last_heartbeat: status.last_heartbeat,
-        ping: status.ping || null,
+        ping: status.ping || status.api_ping || null,
+        api_ping: status.api_ping || null,
+        site_ping: status.site_ping || null,
+        healthcheck_ok: status.healthcheck_ok !== false,
         age_seconds: Math.floor(age / 1000),
     });
 }
@@ -25,7 +35,10 @@ export async function onRequestGet(context) {
 function jsonResponse(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status: status,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+        },
     });
 }
 
