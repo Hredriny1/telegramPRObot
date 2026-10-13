@@ -22,21 +22,18 @@
             --error: #ef4444;
             --warning: #f59e0b;
         }
-
         [data-theme="cyberpunk"] {
             --accent: #ff00ff;
             --accent-2: #00ffff;
             --bg-primary: #0d0221;
             --bg-card: rgba(30, 0, 60, 0.75);
         }
-
         [data-theme="oxford"] {
             --accent: #d4a574;
             --accent-2: #8b5a2b;
             --bg-primary: #1a1410;
             --bg-card: rgba(40, 30, 20, 0.75);
         }
-
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: var(--bg-primary);
@@ -49,19 +46,15 @@
         }
         #canvas-container {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             z-index: 1;
             pointer-events: none;
         }
         .overlay {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             z-index: 2;
             display: flex;
             align-items: center;
@@ -106,7 +99,7 @@
             margin-left: auto;
             margin-right: auto;
         }
-        input, select, textarea {
+        input, select {
             flex: 1;
             padding: 16px 20px;
             background: var(--bg-input);
@@ -140,10 +133,7 @@
             transform: translateY(-2px);
             box-shadow: 0 12px 24px rgba(99, 102, 241, 0.4);
         }
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
         .error {
             color: var(--error);
             font-size: 13px;
@@ -151,7 +141,6 @@
             height: 18px;
         }
         .success-content { display: none; }
-
         .top-bar {
             display: flex;
             justify-content: space-between;
@@ -170,26 +159,25 @@
             color: var(--text-secondary);
         }
         .status-dot {
-            width: 10px;
-            height: 10px;
+            width: 10px; height: 10px;
             border-radius: 50%;
             background: var(--success);
             animation: pulse 2s infinite;
         }
         .status-dot.offline { background: var(--error); animation: none; }
+        .status-dot.degraded { background: var(--warning); animation: pulse 1s infinite; }
         .status-dot.unknown { background: var(--warning); animation: none; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
         }
-        .top-actions { display: flex; gap: 8px; align-items: center; }
-        .logout-btn, .theme-btn {
+        .top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .logout-btn, .theme-btn, .ping-btn {
             padding: 8px 16px;
             font-size: 12px;
             background: var(--bg-input);
             border: 1px solid var(--border-color);
         }
-
         .tabs {
             display: flex;
             gap: 8px;
@@ -215,14 +203,12 @@
             color: var(--text-primary);
             border-bottom-color: var(--accent);
         }
-
         .tab-content { display: none; text-align: left; }
         .tab-content.active { display: block; animation: fadeIn 0.3s; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-
         .search-bar {
             display: flex;
             gap: 8px;
@@ -235,7 +221,6 @@
         }
         .search-bar input { flex: 2; }
         .search-bar select { flex: 1; max-width: 180px; }
-
         .logs-container {
             display: flex;
             flex-direction: column;
@@ -291,7 +276,6 @@
             padding: 40px 0;
             font-size: 14px;
         }
-
         .console-wrapper {
             background: #0d0d14;
             border-radius: 16px;
@@ -356,7 +340,6 @@
             background: rgba(99, 102, 241, 0.3);
             transform: translateY(-1px);
         }
-
         .bans-table {
             width: 100%;
             border-collapse: collapse;
@@ -376,9 +359,7 @@
             padding: 12px;
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
-        .bans-table tr:hover {
-            background: rgba(255,255,255,0.02);
-        }
+        .bans-table tr:hover { background: rgba(255,255,255,0.02); }
         .badge {
             display: inline-block;
             padding: 4px 8px;
@@ -396,10 +377,7 @@
             color: var(--error);
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
-        .btn-mini:hover {
-            background: rgba(239, 68, 68, 0.4);
-        }
-
+        .btn-mini:hover { background: rgba(239, 68, 68, 0.4); }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -431,32 +409,20 @@
             padding: 20px;
             height: 300px;
         }
-
         .fade-out {
             opacity: 0;
             transform: translateY(-20px);
             pointer-events: none;
         }
-        .fade-in {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
+        .fade-in { opacity: 1; transform: translateY(0); }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-
-        /* Мобильная адаптация */
         @media (max-width: 768px) {
             #canvas-container { display: none; }
-            .overlay {
-                background: linear-gradient(135deg, var(--bg-primary) 0%, #1a1a2e 100%);
-            }
-            .card {
-                padding: 24px 20px;
-                border-radius: 16px;
-            }
+            .overlay { background: linear-gradient(135deg, var(--bg-primary) 0%, #1a1a2e 100%); }
+            .card { padding: 24px 20px; border-radius: 16px; }
             .card h1 { font-size: 22px; }
             .tabs { gap: 4px; }
             .tab { padding: 10px 14px; font-size: 12px; }
@@ -465,11 +431,9 @@
             .search-bar select { max-width: unset; }
             .stats-grid { grid-template-columns: 1fr; }
         }
-
         .spinner {
             display: inline-block;
-            width: 14px;
-            height: 14px;
+            width: 14px; height: 14px;
             border: 2px solid rgba(255,255,255,0.3);
             border-top-color: #fff;
             border-radius: 50%;
@@ -477,9 +441,80 @@
             margin-right: 6px;
             vertical-align: middle;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Модалки */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 300;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(8px);
+            padding: 20px;
         }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: #14141e;
+            border-radius: 24px;
+            padding: 32px;
+            max-width: 500px;
+            width: 100%;
+            border: 1px solid var(--border-color);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-content h2 { margin-bottom: 20px; font-size: 22px; }
+        .modal-btn {
+            width: 100%;
+            margin-top: 20px;
+            padding: 12px;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        .modal-btn:hover { background: rgba(255,255,255,0.05); }
+        .ping-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .ping-row:last-child { margin-bottom: 0; }
+        .ping-value { font-weight: 600; color: var(--success); }
+
+        /* Трассировка */
+        .trace-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .trace-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent);
+            font-size: 13px;
+        }
+        .trace-step-time {
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-family: monospace;
+            min-width: 60px;
+        }
+        .trace-step-text { flex: 1; }
     </style>
 </head>
 <body>
@@ -505,6 +540,7 @@
                     <span id="bot-status-text">Проверка статуса...</span>
                 </div>
                 <div class="top-actions">
+                    <button class="ping-btn" onclick="showPingModal()">🏓 Пинг</button>
                     <button class="theme-btn" onclick="cycleTheme()">🎨 Тема</button>
                     <button class="logout-btn" onclick="logout()">Выйти</button>
                 </div>
@@ -515,6 +551,7 @@
                 <button class="tab" onclick="switchTab(event, 'console')">💻 Консоль</button>
                 <button class="tab" onclick="switchTab(event, 'bans')">🚫 Баны</button>
                 <button class="tab" onclick="switchTab(event, 'stats')">📈 Аналитика</button>
+                <button class="tab" onclick="switchTab(event, 'alerts')">🔔 Алерты</button>
             </div>
 
             <!-- Логи -->
@@ -563,6 +600,35 @@
                     <canvas id="activity-chart"></canvas>
                 </div>
             </div>
+
+            <!-- Алерты -->
+            <div class="tab-content" id="tab-alerts">
+                <div id="alerts-container">
+                    <div class="empty-logs">Загрузка алертов...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка Ping -->
+    <div class="modal" id="ping-modal" onclick="if(event.target===this)this.classList.remove('active')">
+        <div class="modal-content">
+            <h2>🏓 Пинг</h2>
+            <div id="ping-content">
+                <div style="text-align:center;color:rgba(255,255,255,0.5);padding:20px;">Измерение...</div>
+            </div>
+            <button class="modal-btn" onclick="document.getElementById('ping-modal').classList.remove('active')">Закрыть</button>
+        </div>
+    </div>
+
+    <!-- Модалка Трассировки -->
+    <div class="modal" id="trace-modal" onclick="if(event.target===this)this.classList.remove('active')">
+        <div class="modal-content">
+            <h2>🔍 Трассировка запроса</h2>
+            <div id="trace-content">
+                <div style="text-align:center;color:rgba(255,255,255,0.5);padding:20px;">Загрузка...</div>
+            </div>
+            <button class="modal-btn" onclick="document.getElementById('trace-modal').classList.remove('active')">Закрыть</button>
         </div>
     </div>
 
@@ -703,8 +769,9 @@
             loadCommands();
             loadLogs();
             loadBans();
+            loadAlerts();
             checkStatus();
-            logsInterval = setInterval(() => { loadLogs(); loadBans(); }, 5000);
+            logsInterval = setInterval(() => { loadLogs(); loadBans(); loadAlerts(); }, 5000);
             statusInterval = setInterval(checkStatus, 10000);
         }
 
@@ -728,9 +795,10 @@
             document.getElementById('tab-' + name).classList.add('active');
             if (name === 'bans') loadBans();
             if (name === 'stats') renderStats();
+            if (name === 'alerts') loadAlerts();
         };
 
-        // ===== КОМАНДЫ (динамические чипы) =====
+        // ===== КОМАНДЫ =====
         async function loadCommands() {
             try {
                 const res = await fetch('/api/commands', {
@@ -740,7 +808,7 @@
                 const container = document.getElementById('cmd-chips');
                 if (data.commands && data.commands.length > 0) {
                     container.innerHTML = data.commands.map(c =>
-                        `<div class="chip" onclick="insertCmd('${c}')">${c}</div>`
+                        `<div class="chip" onclick="insertCmd('${c} ')">${c}</div>`
                     ).join('') + '<div class="chip" onclick="clearConsole()">clear</div>';
                 }
             } catch (err) { console.error(err); }
@@ -798,7 +866,12 @@
                     details = `<div>${escapeHtml(JSON.stringify(d))}</div>`;
                 }
 
-                return `<div class="${cls}" onclick="this.classList.toggle('expanded')">
+                const traceId = d.request_id || '';
+                const clickHandler = traceId
+                    ? `onclick="showTrace('${traceId}')"`
+                    : `onclick="this.classList.toggle('expanded')"`;
+
+                return `<div class="${cls}" ${clickHandler}>
                     <div class="log-header"><span>${label}</span><span>${timeStr}</span></div>
                     <div class="log-details">${details}</div>
                 </div>`;
@@ -814,12 +887,16 @@
                 const data = await res.json();
                 const dot = document.getElementById('bot-status-dot');
                 const text = document.getElementById('bot-status-text');
-                if (data.online) {
-                    dot.className = 'status-dot';
-                    text.textContent = `Бот онлайн (${data.ping || '?'}ms)`;
-                } else {
+
+                if (!data.online) {
                     dot.className = 'status-dot offline';
                     text.textContent = 'Бот офлайн';
+                } else if (data.healthcheck_ok === false || (data.ping && data.ping > 3000)) {
+                    dot.className = 'status-dot degraded';
+                    text.textContent = `Деградация (${data.ping || '?'}ms)`;
+                } else {
+                    dot.className = 'status-dot';
+                    text.textContent = `Бот онлайн (${data.ping || '?'}ms)`;
                 }
             } catch (err) {
                 document.getElementById('bot-status-dot').className = 'status-dot unknown';
@@ -872,6 +949,32 @@
             } catch (err) { console.error(err); }
         };
 
+        // ===== АЛЕРТЫ =====
+        async function loadAlerts() {
+            try {
+                const res = await fetch('/api/alerts', {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await res.json();
+                const container = document.getElementById('alerts-container');
+
+                if (!data.alerts || data.alerts.length === 0) {
+                    container.innerHTML = '<div class="empty-logs">Алертов нет — всё хорошо ✅</div>';
+                    return;
+                }
+
+                container.innerHTML = data.alerts.map(a => {
+                    const date = new Date(a.timestamp);
+                    const timeStr = date.toLocaleString('ru-RU');
+                    const color = a.type === 'degradation' ? 'var(--warning)' : 'var(--error)';
+                    return `<div class="log-item" style="border-left-color:${color};">
+                        <div class="log-header"><span>🔔 ${a.type}</span><span>${timeStr}</span></div>
+                        <div class="log-details">${escapeHtml(a.message || '')}</div>
+                    </div>`;
+                }).join('');
+            } catch (err) { console.error(err); }
+        }
+
         // ===== АНАЛИТИКА =====
         function renderStats() {
             const statsGrid = document.getElementById('stats-grid');
@@ -887,7 +990,6 @@
                 <div class="stat-card"><div class="stat-value">${deletions}</div><div class="stat-label">Удалений</div></div>
             `;
 
-            // График по часам
             const hours = Array(24).fill(0);
             allEvents.forEach(e => {
                 const h = new Date(e.timestamp).getHours();
@@ -920,6 +1022,84 @@
                 }
             });
         }
+
+        // ===== ПИНГ =====
+        window.showPingModal = async function() {
+            const modal = document.getElementById('ping-modal');
+            const content = document.getElementById('ping-content');
+            modal.classList.add('active');
+            content.innerHTML = '<div style="text-align:center;color:rgba(255,255,255,0.5);padding:20px;">Измерение...</div>';
+
+            try {
+                const t0 = performance.now();
+                const res = await fetch('/api/status', {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await res.json();
+                const sitePing = Math.round(performance.now() - t0);
+
+                content.innerHTML = `
+                    <div class="ping-row">
+                        <span>Telegram API</span>
+                        <span class="ping-value">${data.ping || '—'}ms</span>
+                    </div>
+                    <div class="ping-row">
+                        <span>Site API (браузер)</span>
+                        <span class="ping-value">${sitePing}ms</span>
+                    </div>
+                    <div class="ping-row">
+                        <span>Site API (бот)</span>
+                        <span class="ping-value">${data.site_ping || '—'}ms</span>
+                    </div>
+                    <div class="ping-row">
+                        <span>Статус</span>
+                        <span class="ping-value" style="color:${data.online ? 'var(--success)' : 'var(--error)'};">${data.online ? '✅ Онлайн' : '❌ Офлайн'}</span>
+                    </div>
+                    <div class="ping-row">
+                        <span>Healthcheck</span>
+                        <span class="ping-value" style="color:${data.healthcheck_ok ? 'var(--success)' : 'var(--warning)'};">${data.healthcheck_ok ? '✅ OK' : '⚠️ Деградация'}</span>
+                    </div>
+                `;
+            } catch (err) {
+                content.innerHTML = `<div style="color:var(--error);">Ошибка: ${err.message}</div>`;
+            }
+        };
+
+        // ===== ТРАССИРОВКА =====
+        window.showTrace = async function(requestId) {
+            const modal = document.getElementById('trace-modal');
+            const content = document.getElementById('trace-content');
+            modal.classList.add('active');
+            content.innerHTML = '<div style="text-align:center;color:rgba(255,255,255,0.5);padding:20px;">Загрузка...</div>';
+
+            try {
+                const res = await fetch(`/api/trace?id=${requestId}`, {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await res.json();
+
+                if (!data.trace || !data.trace.steps) {
+                    content.innerHTML = '<div style="color:rgba(255,255,255,0.5);">Трассировка не найдена</div>';
+                    return;
+                }
+
+                const firstTime = data.trace.steps[0]?.timestamp || 0;
+                content.innerHTML = `
+                    <div style="color:rgba(255,255,255,0.5);font-size:12px;margin-bottom:12px;">Request ID: ${requestId}</div>
+                    <div class="trace-steps">
+                        ${data.trace.steps.map(step => {
+                            const offset = step.timestamp - firstTime;
+                            return `<div class="trace-step">
+                                <div class="trace-step-time">+${offset}ms</div>
+                                <div class="trace-step-text">${escapeHtml(step.step)}</div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                `;
+            } catch (err) {
+                content.innerHTML = `<div style="color:var(--error);">Ошибка: ${err.message}</div>`;
+            }
+        };
 
         // ===== КОНСОЛЬ =====
         window.insertCmd = function(cmd) {
@@ -954,7 +1134,6 @@
                 const cls = data.status === 'ok' ? 'success' : 'error';
                 output.innerHTML += `<div class="console-line ${cls}">${escapeHtml(data.message || JSON.stringify(data))}</div>`;
 
-                // Ждём результат от бота
                 if (cmd !== 'clear' && !cmd.startsWith('.connect') && !cmd.startsWith('.unconnect')) {
                     let attempts = 0;
                     const pollResult = setInterval(async () => {
@@ -982,7 +1161,6 @@
             output.scrollTop = output.scrollHeight;
         };
 
-        // История команд
         const cmdHistory = [];
         let historyIndex = -1;
         document.getElementById('console-input').addEventListener('keydown', (e) => {
