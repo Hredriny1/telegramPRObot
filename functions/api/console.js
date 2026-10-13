@@ -7,50 +7,31 @@ export async function onRequestPost(context) {
 
     const { command } = await request.json();
 
-    // Команды консоли обрабатываются на стороне бота через KV-очередь
-    // Здесь просто записываем команду в KV, бот её прочитает
-    
-    if (command.startsWith('.ban ')) {
-        const parts = command.slice(5).split(' ');
-        const id = parts[0];
-        const time = parts[1] || 'forever';
-        const reason = parts.slice(2).join(' ') || 'не указана';
-        
-        return jsonResponse({ 
-            status: 'ok', 
-            message: `Команда бана для ID ${id} (${time}, ${reason}) отправлена в очередь. Бот выполнит её в течение минуты.`
-        });
+    if (!command) {
+        return jsonResponse({ status: 'error', message: 'Пустая команда' }, 400);
     }
 
-    if (command.startsWith('.unban ')) {
-        const id = command.slice(7).trim();
-        return jsonResponse({ 
-            status: 'ok', 
-            message: `Команда разбана для ID ${id} отправлена.`
-        });
-    }
-
+    // Команды, которые можно выполнить сразу на сайте (управление подключением)
     if (command === '.unconnect') {
         await env.BOT_EVENTS.put('connection_state', JSON.stringify({ connected: false, timestamp: Date.now() }));
-        return jsonResponse({ status: 'ok', message: 'Соединение разорвано.' });
+        return jsonResponse({ status: 'ok', message: '✅ Соединение разорвано.' });
     }
-
     if (command === '.connect') {
         await env.BOT_EVENTS.put('connection_state', JSON.stringify({ connected: true, timestamp: Date.now() }));
-        return jsonResponse({ status: 'ok', message: 'Соединение восстановлено.' });
+        return jsonResponse({ status: 'ok', message: '✅ Соединение восстановлено.' });
     }
 
-    if (command === '.idlist' || command.startsWith('.idlist ')) {
-        const bans = JSON.parse(await env.BOT_EVENTS.get('bans') || '[]');
-        return jsonResponse({ 
-            status: 'ok', 
-            message: `В базе ${bans.length} записей. Используйте команду в Telegram для просмотра.`
-        });
-    }
+    // Остальные команды пишем в KV, бот их подхватит
+    const pending = {
+        command: command,
+        timestamp: Date.now(),
+        id: crypto.randomUUID(),
+    };
+    await env.BOT_EVENTS.put('pending_command', JSON.stringify(pending));
 
-    return jsonResponse({ 
-        status: 'error', 
-        message: `Неизвестная команда: ${command}`
+    return jsonResponse({
+        status: 'ok',
+        message: `⏳ Команда "${command}" отправлена боту. Результат появится в течение 10 секунд.`
     });
 }
 
