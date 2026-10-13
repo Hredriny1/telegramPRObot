@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bot Dashboard</title>
+    <title>RedSave — Bot Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: #0a0a0a;
             color: #fff;
-            font-family: 'Inter', sans-serif;
+            font-family: 'Inter', -apple-system, sans-serif;
             overflow: hidden;
             height: 100vh;
             width: 100vw;
@@ -45,7 +46,7 @@
             text-align: center;
             backdrop-filter: blur(20px);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-            max-width: 900px;
+            max-width: 1000px;
             width: 100%;
             max-height: 90vh;
             overflow-y: auto;
@@ -84,8 +85,6 @@
             font-family: inherit;
             outline: none;
             transition: all 0.3s;
-            letter-spacing: 2px;
-            text-align: center;
         }
         input:focus {
             border-color: rgba(100, 100, 255, 0.6);
@@ -117,37 +116,69 @@
         }
         .success-content { display: none; }
 
-        /* Логи */
-        .logs-header {
+        .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .logs-header h2 {
-            font-size: 20px;
-            font-weight: 600;
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.6);
         }
         .status-dot {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             background: #22c55e;
-            margin-right: 8px;
             animation: pulse 2s infinite;
         }
+        .status-dot.offline { background: #ef4444; animation: none; }
+        .status-dot.unknown { background: #f59e0b; animation: none; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
         }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+        .tab:hover { color: #fff; }
+        .tab.active {
+            color: #fff;
+            border-bottom-color: #6366f1;
+        }
+
+        .tab-content { display: none; text-align: left; }
+        .tab-content.active { display: block; }
+
         .logs-container {
-            text-align: left;
             display: flex;
             flex-direction: column;
             gap: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 4px;
         }
         .log-item {
             background: rgba(255, 255, 255, 0.03);
@@ -155,7 +186,6 @@
             border-radius: 8px;
             padding: 12px 16px;
             font-size: 13px;
-            transition: all 0.3s;
             animation: slideIn 0.4s ease;
         }
         @keyframes slideIn {
@@ -179,16 +209,120 @@
             font-size: 13px;
             line-height: 1.5;
         }
-        .log-details span {
-            color: #fff;
-            font-weight: 500;
-        }
+        .log-details span { color: #fff; font-weight: 500; }
         .empty-logs {
             text-align: center;
             color: rgba(255, 255, 255, 0.3);
             padding: 40px 0;
             font-size: 14px;
         }
+
+        /* Консоль */
+        .console-wrapper {
+            background: #0d0d14;
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.08);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 450px;
+        }
+        .console-output {
+            flex: 1;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            overflow-y: auto;
+            color: #22c55e;
+            line-height: 1.6;
+        }
+        .console-line { margin-bottom: 4px; word-wrap: break-word; }
+        .console-line.error { color: #ef4444; }
+        .console-line.info { color: #3b82f6; }
+        .console-line.success { color: #22c55e; }
+        .console-line.cmd { color: #a0a0ff; }
+        .console-input-group {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.02);
+        }
+        .console-input-group input {
+            flex: 1;
+            font-family: 'Courier New', monospace;
+            letter-spacing: normal;
+            padding: 12px 16px;
+            font-size: 14px;
+        }
+        .console-input-group button {
+            padding: 12px 24px;
+            font-size: 14px;
+        }
+        .cmd-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.02);
+        }
+        .chip {
+            padding: 6px 12px;
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 8px;
+            color: #a0a0ff;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .chip:hover {
+            background: rgba(99, 102, 241, 0.3);
+            transform: translateY(-1px);
+        }
+
+        /* База данных (баны) */
+        .bans-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .bans-table th {
+            text-align: left;
+            padding: 12px;
+            background: rgba(255,255,255,0.03);
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .bans-table td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .bans-table tr:hover {
+            background: rgba(255,255,255,0.02);
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge.perm { background: rgba(239,68,68,0.2); color: #ef4444; }
+        .badge.temp { background: rgba(245,158,11,0.2); color: #f59e0b; }
+
+        .logout-btn {
+            padding: 8px 16px;
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
         .fade-out {
             opacity: 0;
             transform: translateY(-20px);
@@ -199,198 +333,14 @@
             transform: translateY(0);
         }
 
-        /* Кнопка-таблетка */
-        #control-pill {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 100;
-            display: none;
-        }
-        #pill-btn {
-            padding: 12px 24px;
-            border-radius: 999px;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            border: none;
-            color: #fff;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 8px 24px rgba(99,102,241,0.4);
-            font-family: inherit;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-        #pill-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 32px rgba(99,102,241,0.6);
-        }
-
-        /* Модальное окно */
-        #control-modal {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.8);
-            z-index: 200;
-            align-items: center;
-            justify-content: center;
-            backdrop-filter: blur(8px);
-        }
-        .modal-content {
-            background: #14141e;
-            border-radius: 24px;
-            padding: 40px;
-            max-width: 500px;
-            width: 90%;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .modal-content h2 {
-            margin-bottom: 24px;
-            font-size: 22px;
-        }
-        .modal-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .modal-btn {
-            padding: 16px;
-            border-radius: 12px;
-            border: none;
-            color: #fff;
-            font-weight: 600;
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 15px;
-            transition: all 0.3s;
-            width: 100%;
-        }
-        .modal-btn:hover {
-            transform: translateY(-2px);
-        }
-        .btn-restart { background: #f59e0b; }
-        .btn-disconnect { background: #ef4444; }
-        .btn-connect { background: #22c55e; }
-        .btn-console { background: #6366f1; }
-        .btn-close {
-            margin-top: 20px;
-            padding: 12px;
-            background: transparent;
-            border: 1px solid rgba(255,255,255,0.2);
-            color: #fff;
-            border-radius: 12px;
-            cursor: pointer;
-            width: 100%;
-            font-family: inherit;
-            font-size: 14px;
-        }
-        .logout-btn {
-            padding: 8px 16px;
-            font-size: 12px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        /* Консоль */
-        #console-panel {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.95);
-            z-index: 300;
-            display: none;
-            flex-direction: column;
-            padding: 20px;
-        }
-        .console-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .console-body {
-            flex: 1;
-            background: #0a0a0a;
-            border-radius: 12px;
-            padding: 16px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            overflow-y: auto;
-            color: #22c55e;
-        }
-        .console-input-group {
-            display: flex;
-            gap: 8px;
-            margin-top: 16px;
-        }
-        .console-input-group input {
-            text-align: left;
-            letter-spacing: normal;
-            font-family: 'Courier New', monospace;
-        }
-        .console-line {
-            margin-bottom: 6px;
-            word-wrap: break-word;
-        }
-        .console-line.error { color: #ef4444; }
-        .console-line.info { color: #3b82f6; }
-        .console-line.success { color: #22c55e; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
-
-    <!-- Кнопка-таблетка (появляется после входа) -->
-    <div id="control-pill">
-        <button id="pill-btn" onclick="openControlModal()">⚙️ Управление</button>
-    </div>
-
-    <!-- Модальное окно управления -->
-    <div id="control-modal">
-        <div class="modal-content">
-            <h2>Управление подключением</h2>
-            <div class="modal-buttons">
-                <button class="modal-btn btn-restart" onclick="controlAction('restart')">
-                    🔄 Перезапустить подключение
-                </button>
-                <button class="modal-btn btn-disconnect" onclick="controlAction('disconnect')">
-                    🛑 Выключить
-                </button>
-                <button class="modal-btn btn-connect" onclick="controlAction('connect')">
-                    ✅ Запустить
-                </button>
-                <button class="modal-btn btn-console" onclick="openConsole()">
-                    💻 Консоль
-                </button>
-            </div>
-            <button class="btn-close" onclick="closeControlModal()">Закрыть</button>
-        </div>
-    </div>
-
-    <!-- Консоль -->
-    <div id="console-panel">
-        <div class="console-header">
-            <h2>💻 Консоль управления</h2>
-            <button class="logout-btn" onclick="closeConsole()">Закрыть</button>
-        </div>
-        <div class="console-body" id="console-output">
-            <div class="console-line info">Добро пожаловать в консоль управления ботом.</div>
-            <div class="console-line info">Доступные команды:</div>
-            <div class="console-line">  .ban (ID) (time) (reason) — забанить</div>
-            <div class="console-line">  .unban (ID) (reason) — разбанить</div>
-            <div class="console-line">  .idlist (page) — список юзеров</div>
-            <div class="console-line">  .banlist (page) — список банов</div>
-            <div class="console-line">  .checkban (ID) — проверить бан</div>
-            <div class="console-line">  .unconnect — разорвать соединение</div>
-            <div class="console-line">  .connect — восстановить соединение</div>
-            <div class="console-line">  clear — очистить консоль</div>
-        </div>
-        <div class="console-input-group">
-            <input type="text" id="console-input" placeholder="Введите команду..." autocomplete="off">
-            <button onclick="executeConsoleCommand()">Выполнить</button>
-        </div>
-    </div>
 
     <div class="overlay" id="overlay">
         <!-- Экран входа -->
@@ -404,14 +354,60 @@
             <div class="error" id="error-msg"></div>
         </div>
 
-        <!-- Экран логов -->
+        <!-- Основной дашборд -->
         <div class="card success-content" id="success-card">
-            <div class="logs-header">
-                <h2><span class="status-dot"></span>Логи бота</h2>
+            <div class="top-bar">
+                <div class="status-indicator">
+                    <span class="status-dot unknown" id="bot-status-dot"></span>
+                    <span id="bot-status-text">Проверка статуса...</span>
+                </div>
                 <button class="logout-btn" onclick="logout()">Выйти</button>
             </div>
-            <div class="logs-container" id="logs-container">
-                <div class="empty-logs">Загрузка логов...</div>
+
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('logs')">📊 Логи</button>
+                <button class="tab" onclick="switchTab('console')">💻 Консоль</button>
+                <button class="tab" onclick="switchTab('bans')">🚫 Баны</button>
+            </div>
+
+            <!-- Логи -->
+            <div class="tab-content active" id="tab-logs">
+                <div class="logs-container" id="logs-container">
+                    <div class="empty-logs">Загрузка логов...</div>
+                </div>
+            </div>
+
+            <!-- Консоль -->
+            <div class="tab-content" id="tab-console">
+                <div class="console-wrapper">
+                    <div class="cmd-chips">
+                        <div class="chip" onclick="insertCmd('.ban ')">.ban</div>
+                        <div class="chip" onclick="insertCmd('.unban ')">.unban</div>
+                        <div class="chip" onclick="insertCmd('.idlist')">.idlist</div>
+                        <div class="chip" onclick="insertCmd('.banlist')">.banlist</div>
+                        <div class="chip" onclick="insertCmd('.checkban ')">.checkban</div>
+                        <div class="chip" onclick="insertCmd('.ai ')">.ai</div>
+                        <div class="chip" onclick="insertCmd('.mute ')">.mute</div>
+                        <div class="chip" onclick="insertCmd('.unmute')">.unmute</div>
+                        <div class="chip" onclick="insertCmd('.ping')">.ping</div>
+                        <div class="chip" onclick="clearConsole()">clear</div>
+                    </div>
+                    <div class="console-output" id="console-output">
+                        <div class="console-line info">Добро пожаловать в консоль управления ботом.</div>
+                        <div class="console-line info">Введите команду или кликните на чип выше.</div>
+                    </div>
+                    <div class="console-input-group">
+                        <input type="text" id="console-input" placeholder="Введите команду..." autocomplete="off" spellcheck="false">
+                        <button onclick="executeConsoleCommand()">Выполнить</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Баны -->
+            <div class="tab-content" id="tab-bans">
+                <div id="bans-container">
+                    <div class="empty-logs">Загрузка банов...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -443,62 +439,44 @@
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.toneMapping = THREE.ReinhardToneMapping;
-        renderer.toneMappingExposure = 1.2;
         container.appendChild(renderer.domElement);
 
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
-        const bloomPass = new UnrealBloomPass(
+        composer.addPass(new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
             1.5, 0.4, 0.85
+        ));
+
+        scene.add(new THREE.AmbientLight(0x404060, 0.5));
+        const pl1 = new THREE.PointLight(0x6366f1, 2, 50);
+        pl1.position.set(10, 10, 10);
+        scene.add(pl1);
+        const pl2 = new THREE.PointLight(0x8b5cf6, 2, 50);
+        pl2.position.set(-10, -10, 10);
+        scene.add(pl2);
+
+        const knot = new THREE.Mesh(
+            new THREE.TorusKnotGeometry(6, 1.8, 200, 32),
+            new THREE.MeshStandardMaterial({ color: 0x6366f1, emissive: 0x1a1a4e, metalness: 0.9, roughness: 0.15 })
         );
-        composer.addPass(bloomPass);
-
-        const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
-        scene.add(ambientLight);
-
-        const pointLight1 = new THREE.PointLight(0x6366f1, 2, 50);
-        pointLight1.position.set(10, 10, 10);
-        scene.add(pointLight1);
-
-        const pointLight2 = new THREE.PointLight(0x8b5cf6, 2, 50);
-        pointLight2.position.set(-10, -10, 10);
-        scene.add(pointLight2);
-
-        const knotGeometry = new THREE.TorusKnotGeometry(6, 1.8, 200, 32);
-        const knotMaterial = new THREE.MeshStandardMaterial({
-            color: 0x6366f1,
-            emissive: 0x1a1a4e,
-            metalness: 0.9,
-            roughness: 0.15,
-        });
-        const knot = new THREE.Mesh(knotGeometry, knotMaterial);
         scene.add(knot);
 
-        const particlesGeometry = new THREE.BufferGeometry();
-        const particlesCount = 3000;
-        const posArray = new Float32Array(particlesCount * 3);
-        for (let i = 0; i < particlesCount * 3; i++) {
-            posArray[i] = (Math.random() - 0.5) * 120;
-        }
-        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-        const particlesMaterial = new THREE.PointsMaterial({
-            size: 0.15,
-            color: 0x8888ff,
-            transparent: true,
-            opacity: 0.6,
-            blending: THREE.AdditiveBlending,
-        });
-        const particles = new THREE.Points(particlesGeometry, particlesMaterial);
+        const particlesGeo = new THREE.BufferGeometry();
+        const posArray = new Float32Array(3000 * 3);
+        for (let i = 0; i < 3000 * 3; i++) posArray[i] = (Math.random() - 0.5) * 120;
+        particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const particles = new THREE.Points(particlesGeo, new THREE.PointsMaterial({
+            size: 0.15, color: 0x8888ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending
+        }));
         scene.add(particles);
 
-        const ringGeometry = new THREE.TorusGeometry(12, 0.08, 16, 100);
-        const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.2 });
-        const ring1 = new THREE.Mesh(ringGeometry, ringMaterial);
+        const ringGeo = new THREE.TorusGeometry(12, 0.08, 16, 100);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.2 });
+        const ring1 = new THREE.Mesh(ringGeo, ringMat);
         ring1.rotation.x = Math.PI / 2;
         scene.add(ring1);
-        const ring2 = new THREE.Mesh(ringGeometry, ringMaterial);
+        const ring2 = new THREE.Mesh(ringGeo, ringMat);
         ring2.rotation.x = Math.PI / 3;
         ring2.rotation.y = Math.PI / 4;
         scene.add(ring2);
@@ -510,32 +488,21 @@
         });
 
         const clock = new THREE.Clock();
-
         function animate() {
             requestAnimationFrame(animate);
-            const elapsed = clock.getElapsedTime();
-
-            knot.rotation.x = elapsed * 0.3;
-            knot.rotation.y = elapsed * 0.4;
-
-            const scale = 1 + Math.sin(elapsed * 2) * 0.03;
-            knot.scale.set(scale, scale, scale);
-
-            particles.rotation.y = elapsed * 0.02;
-            particles.rotation.x = elapsed * 0.01;
-
-            ring1.rotation.z = elapsed * 0.1;
-            ring2.rotation.z = -elapsed * 0.15;
-
+            const t = clock.getElapsedTime();
+            knot.rotation.x = t * 0.3;
+            knot.rotation.y = t * 0.4;
+            const s = 1 + Math.sin(t * 2) * 0.03;
+            knot.scale.set(s, s, s);
+            particles.rotation.y = t * 0.02;
+            ring1.rotation.z = t * 0.1;
+            ring2.rotation.z = -t * 0.15;
             camera.position.x += (mouseX * 3 - camera.position.x) * 0.02;
             camera.position.y += (mouseY * 3 - camera.position.y) * 0.02;
             camera.lookAt(0, 0, 0);
-
-            pointLight1.position.x = Math.sin(elapsed * 0.5) * 15;
-            pointLight1.position.y = Math.cos(elapsed * 0.5) * 15;
-            pointLight2.position.x = Math.sin(elapsed * 0.7 + 2) * 15;
-            pointLight2.position.y = Math.cos(elapsed * 0.7 + 2) * 15;
-
+            pl1.position.x = Math.sin(t * 0.5) * 15;
+            pl1.position.y = Math.cos(t * 0.5) * 15;
             composer.render();
         }
         animate();
@@ -549,8 +516,10 @@
 
         // ===== АВТОРИЗАЦИЯ =====
         let isLoggedIn = false;
-        let logsInterval = null;
         let adminPassword = '';
+        let logsInterval = null;
+        let statusInterval = null;
+        let consolePollInterval = null;
 
         window.checkPassword = async function() {
             const input = document.getElementById('password-input');
@@ -561,7 +530,6 @@
                 errorEl.textContent = 'Введите пароль';
                 return;
             }
-
             errorEl.textContent = '';
 
             try {
@@ -570,7 +538,6 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password })
                 });
-
                 const data = await response.json();
 
                 if (data.success) {
@@ -580,24 +547,23 @@
 
                     const loginCard = document.getElementById('login-card');
                     const successCard = document.getElementById('success-card');
-
                     loginCard.classList.add('fade-out');
                     setTimeout(() => {
                         loginCard.style.display = 'none';
                         successCard.style.display = 'block';
                         successCard.classList.add('fade-in');
-                        document.getElementById('control-pill').style.display = 'block';
                         loadLogs();
+                        loadBans();
+                        checkStatus();
                         logsInterval = setInterval(loadLogs, 5000);
+                        statusInterval = setInterval(checkStatus, 10000);
                     }, 300);
                 } else {
                     errorEl.textContent = 'Неверный пароль';
                     input.value = '';
-                    input.focus();
                 }
             } catch (err) {
                 errorEl.textContent = 'Ошибка соединения';
-                console.error(err);
             }
         };
 
@@ -605,124 +571,128 @@
             isLoggedIn = false;
             adminPassword = '';
             sessionStorage.removeItem('admin_pass');
-            if (logsInterval) clearInterval(logsInterval);
+            clearInterval(logsInterval);
+            clearInterval(statusInterval);
+            clearInterval(consolePollInterval);
             document.getElementById('login-card').style.display = 'block';
             document.getElementById('login-card').classList.remove('fade-out');
             document.getElementById('success-card').style.display = 'none';
-            document.getElementById('control-pill').style.display = 'none';
             document.getElementById('password-input').value = '';
         };
 
+        window.switchTab = function(name) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('tab-' + name).classList.add('active');
+            if (name === 'bans') loadBans();
+        };
+
+        // ===== ЛОГИ =====
         async function loadLogs() {
             try {
-                const response = await fetch('/api/events', {
+                const res = await fetch('/api/events', {
                     headers: { 'X-Admin-Password': adminPassword }
                 });
-                const data = await response.json();
-
+                const data = await res.json();
                 const container = document.getElementById('logs-container');
 
                 if (!data.events || data.events.length === 0) {
-                    container.innerHTML = '<div class="empty-logs">Пока нет событий от бота</div>';
+                    container.innerHTML = '<div class="empty-logs">Пока нет событий</div>';
                     return;
                 }
 
-                container.innerHTML = data.events.map(event => {
-                    const date = new Date(event.timestamp);
+                container.innerHTML = data.events.map(ev => {
+                    const date = new Date(ev.timestamp);
                     const timeStr = date.toLocaleString('ru-RU');
-                    const action = event.action || 'unknown';
-                    const d = event.data || {};
-
-                    let actionLabel = action;
-                    let detailsHtml = '';
-                    let itemClass = 'log-item';
+                    const action = ev.action || 'unknown';
+                    const d = ev.data || {};
+                    let label = action, cls = 'log-item', details = '';
 
                     if (action === 'command') {
-                        actionLabel = '⌨️ Команда';
-                        itemClass += ' command';
-                        detailsHtml = `
-                            <div>Команда: <span>${d.command || '—'}</span></div>
-                            <div>ID чата: <span>${d.chat_id || '—'}</span></div>
-                            ${d.arg ? `<div>Аргумент: <span>${d.arg}</span></div>` : ''}
-                        `;
+                        label = '⌨️ Команда'; cls += ' command';
+                        details = `<div>Команда: <span>${d.command || '—'}</span></div>
+                                   <div>ID чата: <span>${d.chat_id || '—'}</span></div>`;
                     } else if (action === 'new_message') {
-                        actionLabel = '💬 Новое сообщение';
-                        itemClass += ' new_message';
-                        detailsHtml = `
-                            <div>ID чата: <span>${d.chat_id || '—'}</span></div>
-                            <div>Отправитель: <span>${d.sender_id || '—'}</span></div>
-                            <div>Текст: <span>${escapeHtml(d.text || '—')}</span></div>
-                        `;
+                        label = '💬 Сообщение'; cls += ' new_message';
+                        details = `<div>От: <span>${d.sender_id || '—'}</span></div>
+                                   <div>Текст: <span>${escapeHtml(d.text || '—')}</span></div>`;
                     } else if (action === 'deletion') {
-                        actionLabel = '🗑️ Удаление';
-                        itemClass += ' deletion';
-                        const texts = (d.texts || []).map(t => escapeHtml(t)).join('<br>');
-                        detailsHtml = `
-                            <div>ID чата: <span>${d.chat_id || '—'}</span></div>
-                            <div>Тексты:<br><span>${texts || '—'}</span></div>
-                        `;
+                        label = '🗑️ Удаление'; cls += ' deletion';
+                        details = `<div>Чат: <span>${d.chat_id || '—'}</span></div>`;
                     } else {
-                        detailsHtml = `<div>${escapeHtml(JSON.stringify(d))}</div>`;
+                        details = `<div>${escapeHtml(JSON.stringify(d))}</div>`;
                     }
 
-                    return `
-                        <div class="${itemClass}">
-                            <div class="log-header">
-                                <span>${actionLabel}</span>
-                                <span>${timeStr}</span>
-                            </div>
-                            <div class="log-details">${detailsHtml}</div>
-                        </div>
-                    `;
+                    return `<div class="${cls}">
+                        <div class="log-header"><span>${label}</span><span>${timeStr}</span></div>
+                        <div class="log-details">${details}</div>
+                    </div>`;
                 }).join('');
-
-            } catch (err) {
-                console.error('Ошибка загрузки логов:', err);
-            }
+            } catch (err) { console.error(err); }
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // ===== УПРАВЛЕНИЕ =====
-        window.openControlModal = function() {
-            document.getElementById('control-modal').style.display = 'flex';
-        };
-
-        window.closeControlModal = function() {
-            document.getElementById('control-modal').style.display = 'none';
-        };
-
-        window.controlAction = async function(action) {
+        // ===== СТАТУС БОТА =====
+        async function checkStatus() {
             try {
-                const res = await fetch('/api/control', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Password': adminPassword
-                    },
-                    body: JSON.stringify({ action })
+                const res = await fetch('/api/status', {
+                    headers: { 'X-Admin-Password': adminPassword }
                 });
                 const data = await res.json();
-                alert(data.message || 'Готово');
-                closeControlModal();
+                const dot = document.getElementById('bot-status-dot');
+                const text = document.getElementById('bot-status-text');
+
+                if (data.online) {
+                    dot.className = 'status-dot';
+                    text.textContent = `Бот онлайн (${data.ping || '?'}ms)`;
+                } else {
+                    dot.className = 'status-dot offline';
+                    text.textContent = 'Бот офлайн';
+                }
             } catch (err) {
-                alert('Ошибка: ' + err.message);
+                document.getElementById('bot-status-dot').className = 'status-dot unknown';
+                document.getElementById('bot-status-text').textContent = 'Статус неизвестен';
             }
-        };
+        }
+
+        // ===== БАНЫ =====
+        async function loadBans() {
+            try {
+                const res = await fetch('/api/bans', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminPassword },
+                    body: JSON.stringify({ action: 'list' })
+                });
+                const data = await res.json();
+                const container = document.getElementById('bans-container');
+
+                if (!data.bans || data.bans.length === 0) {
+                    container.innerHTML = '<div class="empty-logs">Бан-лист пуст</div>';
+                    return;
+                }
+
+                container.innerHTML = `<table class="bans-table">
+                    <thead><tr><th>ID</th><th>Username</th><th>Время</th><th>Причина</th></tr></thead>
+                    <tbody>${data.bans.map(b => `<tr>
+                        <td>${b.id || '—'}</td>
+                        <td>@${b.username || 'нет'}</td>
+                        <td><span class="badge ${b.time === 'forever' ? 'perm' : 'temp'}">${b.time || 'forever'}</span></td>
+                        <td>${escapeHtml(b.reason || '—')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>`;
+            } catch (err) { console.error(err); }
+        }
 
         // ===== КОНСОЛЬ =====
-        window.openConsole = function() {
-            closeControlModal();
-            document.getElementById('console-panel').style.display = 'flex';
-            document.getElementById('console-input').focus();
+        window.insertCmd = function(cmd) {
+            const input = document.getElementById('console-input');
+            input.value = cmd;
+            input.focus();
         };
 
-        window.closeConsole = function() {
-            document.getElementById('console-panel').style.display = 'none';
+        window.clearConsole = function() {
+            document.getElementById('console-output').innerHTML =
+                '<div class="console-line info">Консоль очищена.</div>';
         };
 
         window.executeConsoleCommand = async function() {
@@ -731,40 +701,64 @@
             if (!cmd) return;
 
             const output = document.getElementById('console-output');
-            output.innerHTML += `<div class="console-line">> ${escapeHtml(cmd)}</div>`;
-
-            if (cmd === 'clear') {
-                output.innerHTML = '<div class="console-line info">Консоль очищена.</div>';
-                input.value = '';
-                return;
-            }
+            output.innerHTML += `<div class="console-line cmd">> ${escapeHtml(cmd)}</div>`;
+            input.value = '';
+            output.scrollTop = output.scrollHeight;
 
             try {
                 const res = await fetch('/api/console', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Admin-Password': adminPassword
-                    },
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminPassword },
                     body: JSON.stringify({ command: cmd })
                 });
                 const data = await res.json();
-                output.innerHTML += `<div class="console-line ${data.status === 'ok' ? 'success' : 'error'}">${escapeHtml(data.message || JSON.stringify(data))}</div>`;
+                const cls = data.status === 'ok' ? 'success' : 'error';
+                output.innerHTML += `<div class="console-line ${cls}">${escapeHtml(data.message || JSON.stringify(data))}</div>`;
             } catch (err) {
                 output.innerHTML += `<div class="console-line error">Ошибка: ${err.message}</div>`;
             }
-
-            input.value = '';
             output.scrollTop = output.scrollHeight;
         };
+
+        // История команд (стрелки вверх/вниз)
+        const cmdHistory = [];
+        let historyIndex = -1;
+
+        document.getElementById('console-input').addEventListener('keydown', (e) => {
+            const input = e.target;
+            if (e.key === 'Enter') {
+                if (input.value.trim()) {
+                    cmdHistory.push(input.value.trim());
+                    historyIndex = cmdHistory.length;
+                }
+                executeConsoleCommand();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (cmdHistory.length > 0) {
+                    historyIndex = Math.max(0, historyIndex - 1);
+                    input.value = cmdHistory[historyIndex] || '';
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIndex < cmdHistory.length - 1) {
+                    historyIndex++;
+                    input.value = cmdHistory[historyIndex];
+                } else {
+                    historyIndex = cmdHistory.length;
+                    input.value = '';
+                }
+            }
+        });
 
         document.getElementById('password-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') checkPassword();
         });
 
-        document.getElementById('console-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') executeConsoleCommand();
-        });
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
     </script>
 </body>
 </html>
