@@ -4,16 +4,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RedSave — Bot Dashboard</title>
+    <meta name="theme-color" content="#0a0a0a">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+    <link rel="manifest" href="/manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-card: rgba(20, 20, 30, 0.75);
+            --bg-input: rgba(255, 255, 255, 0.05);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-primary: #fff;
+            --text-secondary: rgba(255, 255, 255, 0.5);
+            --accent: #6366f1;
+            --accent-2: #8b5cf6;
+            --success: #22c55e;
+            --error: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        [data-theme="cyberpunk"] {
+            --accent: #ff00ff;
+            --accent-2: #00ffff;
+            --bg-primary: #0d0221;
+            --bg-card: rgba(30, 0, 60, 0.75);
+        }
+
+        [data-theme="oxford"] {
+            --accent: #d4a574;
+            --accent-2: #8b5a2b;
+            --bg-primary: #1a1410;
+            --bg-card: rgba(40, 30, 20, 0.75);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            background: #0a0a0a;
-            color: #fff;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             font-family: 'Inter', -apple-system, sans-serif;
             overflow: hidden;
             height: 100vh;
             width: 100vw;
+            transition: background 0.5s;
         }
         #canvas-container {
             position: fixed;
@@ -22,6 +54,7 @@
             width: 100%;
             height: 100%;
             z-index: 1;
+            pointer-events: none;
         }
         .overlay {
             position: fixed;
@@ -39,14 +72,14 @@
             padding: 20px;
         }
         .card {
-            background: rgba(20, 20, 30, 0.75);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
             border-radius: 24px;
             padding: 40px 48px;
             text-align: center;
             backdrop-filter: blur(20px);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-            max-width: 1000px;
+            max-width: 1100px;
             width: 100%;
             max-height: 90vh;
             overflow-y: auto;
@@ -55,15 +88,14 @@
         .card h1 {
             font-size: 28px;
             font-weight: 700;
-            letter-spacing: -0.5px;
             margin-bottom: 8px;
-            background: linear-gradient(135deg, #fff 0%, #a0a0ff 100%);
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-2) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         .card p {
             font-size: 14px;
-            color: rgba(255, 255, 255, 0.5);
+            color: var(--text-secondary);
             margin-bottom: 24px;
         }
         .input-group {
@@ -74,26 +106,25 @@
             margin-left: auto;
             margin-right: auto;
         }
-        input {
+        input, select, textarea {
             flex: 1;
             padding: 16px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
             border-radius: 14px;
-            color: #fff;
+            color: var(--text-primary);
             font-size: 16px;
             font-family: inherit;
             outline: none;
             transition: all 0.3s;
         }
-        input:focus {
-            border-color: rgba(100, 100, 255, 0.6);
-            background: rgba(100, 100, 255, 0.05);
-            box-shadow: 0 0 0 4px rgba(100, 100, 255, 0.1);
+        input:focus, select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
         }
         button {
             padding: 16px 28px;
-            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
             border: none;
             border-radius: 14px;
             color: #fff;
@@ -103,13 +134,18 @@
             cursor: pointer;
             transition: all 0.3s;
             white-space: nowrap;
+            position: relative;
         }
-        button:hover {
+        button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 12px 24px rgba(99, 102, 241, 0.4);
         }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
         .error {
-            color: #ff6b6b;
+            color: var(--error);
             font-size: 13px;
             margin-top: 12px;
             height: 18px;
@@ -122,55 +158,83 @@
             align-items: center;
             margin-bottom: 20px;
             padding-bottom: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 12px;
         }
         .status-indicator {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 13px;
-            color: rgba(255, 255, 255, 0.6);
+            color: var(--text-secondary);
         }
         .status-dot {
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: #22c55e;
+            background: var(--success);
             animation: pulse 2s infinite;
         }
-        .status-dot.offline { background: #ef4444; animation: none; }
-        .status-dot.unknown { background: #f59e0b; animation: none; }
+        .status-dot.offline { background: var(--error); animation: none; }
+        .status-dot.unknown { background: var(--warning); animation: none; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
+        }
+        .top-actions { display: flex; gap: 8px; align-items: center; }
+        .logout-btn, .theme-btn {
+            padding: 8px 16px;
+            font-size: 12px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
         }
 
         .tabs {
             display: flex;
             gap: 8px;
             margin-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 1px solid var(--border-color);
+            overflow-x: auto;
         }
         .tab {
             padding: 12px 24px;
             background: transparent;
             border: none;
-            color: rgba(255, 255, 255, 0.5);
+            color: var(--text-secondary);
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             border-bottom: 2px solid transparent;
             transition: all 0.3s;
             font-family: inherit;
+            white-space: nowrap;
         }
-        .tab:hover { color: #fff; }
+        .tab:hover { color: var(--text-primary); }
         .tab.active {
-            color: #fff;
-            border-bottom-color: #6366f1;
+            color: var(--text-primary);
+            border-bottom-color: var(--accent);
         }
 
         .tab-content { display: none; text-align: left; }
-        .tab-content.active { display: block; }
+        .tab-content.active { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .search-bar input, .search-bar select {
+            padding: 10px 14px;
+            font-size: 13px;
+            border-radius: 10px;
+        }
+        .search-bar input { flex: 2; }
+        .search-bar select { flex: 1; max-width: 180px; }
 
         .logs-container {
             display: flex;
@@ -182,24 +246,27 @@
         }
         .log-item {
             background: rgba(255, 255, 255, 0.03);
-            border-left: 3px solid #6366f1;
+            border-left: 3px solid var(--accent);
             border-radius: 8px;
             padding: 12px 16px;
             font-size: 13px;
             animation: slideIn 0.4s ease;
+            cursor: pointer;
+            transition: all 0.2s;
         }
+        .log-item:hover { background: rgba(255,255,255,0.06); }
         @keyframes slideIn {
             from { opacity: 0; transform: translateY(-10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .log-item.command { border-left-color: #8b5cf6; }
+        .log-item.command { border-left-color: var(--accent-2); }
         .log-item.new_message { border-left-color: #3b82f6; }
-        .log-item.deletion { border-left-color: #ef4444; }
+        .log-item.deletion { border-left-color: var(--error); }
         .log-header {
             display: flex;
             justify-content: space-between;
             margin-bottom: 6px;
-            color: rgba(255, 255, 255, 0.4);
+            color: var(--text-secondary);
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -208,24 +275,31 @@
             color: rgba(255, 255, 255, 0.7);
             font-size: 13px;
             line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
-        .log-details span { color: #fff; font-weight: 500; }
+        .log-item.expanded .log-details {
+            -webkit-line-clamp: unset;
+            display: block;
+        }
+        .log-details span { color: var(--text-primary); font-weight: 500; }
         .empty-logs {
             text-align: center;
-            color: rgba(255, 255, 255, 0.3);
+            color: var(--text-secondary);
             padding: 40px 0;
             font-size: 14px;
         }
 
-        /* Консоль */
         .console-wrapper {
             background: #0d0d14;
             border-radius: 16px;
-            border: 1px solid rgba(255,255,255,0.08);
+            border: 1px solid var(--border-color);
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            height: 450px;
+            height: 500px;
         }
         .console-output {
             flex: 1;
@@ -233,19 +307,19 @@
             font-family: 'Courier New', monospace;
             font-size: 13px;
             overflow-y: auto;
-            color: #22c55e;
+            color: var(--success);
             line-height: 1.6;
         }
         .console-line { margin-bottom: 4px; word-wrap: break-word; }
-        .console-line.error { color: #ef4444; }
+        .console-line.error { color: var(--error); }
         .console-line.info { color: #3b82f6; }
-        .console-line.success { color: #22c55e; }
-        .console-line.cmd { color: #a0a0ff; }
+        .console-line.success { color: var(--success); }
+        .console-line.cmd { color: var(--accent-2); }
         .console-input-group {
             display: flex;
             gap: 8px;
             padding: 12px;
-            border-top: 1px solid rgba(255,255,255,0.08);
+            border-top: 1px solid var(--border-color);
             background: rgba(255,255,255,0.02);
         }
         .console-input-group input {
@@ -264,7 +338,7 @@
             flex-wrap: wrap;
             gap: 6px;
             padding: 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid var(--border-color);
             background: rgba(255,255,255,0.02);
         }
         .chip {
@@ -272,7 +346,7 @@
             background: rgba(99, 102, 241, 0.15);
             border: 1px solid rgba(99, 102, 241, 0.3);
             border-radius: 8px;
-            color: #a0a0ff;
+            color: var(--accent-2);
             font-family: 'Courier New', monospace;
             font-size: 12px;
             cursor: pointer;
@@ -283,7 +357,6 @@
             transform: translateY(-1px);
         }
 
-        /* База данных (баны) */
         .bans-table {
             width: 100%;
             border-collapse: collapse;
@@ -293,11 +366,11 @@
             text-align: left;
             padding: 12px;
             background: rgba(255,255,255,0.03);
-            color: rgba(255,255,255,0.5);
+            color: var(--text-secondary);
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 1px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid var(--border-color);
         }
         .bans-table td {
             padding: 12px;
@@ -313,14 +386,50 @@
             font-size: 11px;
             font-weight: 600;
         }
-        .badge.perm { background: rgba(239,68,68,0.2); color: #ef4444; }
-        .badge.temp { background: rgba(245,158,11,0.2); color: #f59e0b; }
+        .badge.perm { background: rgba(239,68,68,0.2); color: var(--error); }
+        .badge.temp { background: rgba(245,158,11,0.2); color: var(--warning); }
+        .btn-mini {
+            padding: 6px 12px;
+            font-size: 11px;
+            border-radius: 6px;
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .btn-mini:hover {
+            background: rgba(239, 68, 68, 0.4);
+        }
 
-        .logout-btn {
-            padding: 8px 16px;
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent-2);
+            margin-bottom: 4px;
+        }
+        .stat-label {
             font-size: 12px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .chart-container {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            height: 300px;
         }
 
         .fade-out {
@@ -333,10 +442,44 @@
             transform: translateY(0);
         }
 
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        /* Мобильная адаптация */
+        @media (max-width: 768px) {
+            #canvas-container { display: none; }
+            .overlay {
+                background: linear-gradient(135deg, var(--bg-primary) 0%, #1a1a2e 100%);
+            }
+            .card {
+                padding: 24px 20px;
+                border-radius: 16px;
+            }
+            .card h1 { font-size: 22px; }
+            .tabs { gap: 4px; }
+            .tab { padding: 10px 14px; font-size: 12px; }
+            .top-bar { flex-direction: column; align-items: flex-start; }
+            .search-bar { flex-direction: column; }
+            .search-bar select { max-width: unset; }
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -354,24 +497,37 @@
             <div class="error" id="error-msg"></div>
         </div>
 
-        <!-- Основной дашборд -->
+        <!-- Дашборд -->
         <div class="card success-content" id="success-card">
             <div class="top-bar">
                 <div class="status-indicator">
                     <span class="status-dot unknown" id="bot-status-dot"></span>
                     <span id="bot-status-text">Проверка статуса...</span>
                 </div>
-                <button class="logout-btn" onclick="logout()">Выйти</button>
+                <div class="top-actions">
+                    <button class="theme-btn" onclick="cycleTheme()">🎨 Тема</button>
+                    <button class="logout-btn" onclick="logout()">Выйти</button>
+                </div>
             </div>
 
             <div class="tabs">
-                <button class="tab active" onclick="switchTab('logs')">📊 Логи</button>
-                <button class="tab" onclick="switchTab('console')">💻 Консоль</button>
-                <button class="tab" onclick="switchTab('bans')">🚫 Баны</button>
+                <button class="tab active" onclick="switchTab(event, 'logs')">📊 Логи</button>
+                <button class="tab" onclick="switchTab(event, 'console')">💻 Консоль</button>
+                <button class="tab" onclick="switchTab(event, 'bans')">🚫 Баны</button>
+                <button class="tab" onclick="switchTab(event, 'stats')">📈 Аналитика</button>
             </div>
 
             <!-- Логи -->
             <div class="tab-content active" id="tab-logs">
+                <div class="search-bar">
+                    <input type="text" id="logs-search" placeholder="Поиск по логам..." oninput="renderLogs()">
+                    <select id="logs-filter" onchange="renderLogs()">
+                        <option value="all">Все события</option>
+                        <option value="command">Команды</option>
+                        <option value="new_message">Сообщения</option>
+                        <option value="deletion">Удаления</option>
+                    </select>
+                </div>
                 <div class="logs-container" id="logs-container">
                     <div class="empty-logs">Загрузка логов...</div>
                 </div>
@@ -380,25 +536,15 @@
             <!-- Консоль -->
             <div class="tab-content" id="tab-console">
                 <div class="console-wrapper">
-                    <div class="cmd-chips">
-                        <div class="chip" onclick="insertCmd('.ban ')">.ban</div>
-                        <div class="chip" onclick="insertCmd('.unban ')">.unban</div>
-                        <div class="chip" onclick="insertCmd('.idlist')">.idlist</div>
-                        <div class="chip" onclick="insertCmd('.banlist')">.banlist</div>
-                        <div class="chip" onclick="insertCmd('.checkban ')">.checkban</div>
-                        <div class="chip" onclick="insertCmd('.ai ')">.ai</div>
-                        <div class="chip" onclick="insertCmd('.mute ')">.mute</div>
-                        <div class="chip" onclick="insertCmd('.unmute')">.unmute</div>
+                    <div class="cmd-chips" id="cmd-chips">
                         <div class="chip" onclick="insertCmd('.ping')">.ping</div>
-                        <div class="chip" onclick="clearConsole()">clear</div>
                     </div>
                     <div class="console-output" id="console-output">
-                        <div class="console-line info">Добро пожаловать в консоль управления ботом.</div>
-                        <div class="console-line info">Введите команду или кликните на чип выше.</div>
+                        <div class="console-line info">Добро пожаловать в консоль.</div>
                     </div>
                     <div class="console-input-group">
                         <input type="text" id="console-input" placeholder="Введите команду..." autocomplete="off" spellcheck="false">
-                        <button onclick="executeConsoleCommand()">Выполнить</button>
+                        <button onclick="executeConsoleCommand()" id="console-btn">Выполнить</button>
                     </div>
                 </div>
             </div>
@@ -407,6 +553,14 @@
             <div class="tab-content" id="tab-bans">
                 <div id="bans-container">
                     <div class="empty-logs">Загрузка банов...</div>
+                </div>
+            </div>
+
+            <!-- Аналитика -->
+            <div class="tab-content" id="tab-stats">
+                <div class="stats-grid" id="stats-grid"></div>
+                <div class="chart-container">
+                    <canvas id="activity-chart"></canvas>
                 </div>
             </div>
         </div>
@@ -427,136 +581,104 @@
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-        // ===== 3D СЦЕНА =====
-        const container = document.getElementById('canvas-container');
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a0a);
-        scene.fog = new THREE.FogExp2(0x0a0a0a, 0.015);
-
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 0, 30);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        container.appendChild(renderer.domElement);
-
-        const composer = new EffectComposer(renderer);
-        composer.addPass(new RenderPass(scene, camera));
-        composer.addPass(new UnrealBloomPass(
-            new THREE.Vector2(window.innerWidth, window.innerHeight),
-            1.5, 0.4, 0.85
-        ));
-
-        scene.add(new THREE.AmbientLight(0x404060, 0.5));
-        const pl1 = new THREE.PointLight(0x6366f1, 2, 50);
-        pl1.position.set(10, 10, 10);
-        scene.add(pl1);
-        const pl2 = new THREE.PointLight(0x8b5cf6, 2, 50);
-        pl2.position.set(-10, -10, 10);
-        scene.add(pl2);
-
-        const knot = new THREE.Mesh(
-            new THREE.TorusKnotGeometry(6, 1.8, 200, 32),
-            new THREE.MeshStandardMaterial({ color: 0x6366f1, emissive: 0x1a1a4e, metalness: 0.9, roughness: 0.15 })
-        );
-        scene.add(knot);
-
-        const particlesGeo = new THREE.BufferGeometry();
-        const posArray = new Float32Array(3000 * 3);
-        for (let i = 0; i < 3000 * 3; i++) posArray[i] = (Math.random() - 0.5) * 120;
-        particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-        const particles = new THREE.Points(particlesGeo, new THREE.PointsMaterial({
-            size: 0.15, color: 0x8888ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending
-        }));
-        scene.add(particles);
-
-        const ringGeo = new THREE.TorusGeometry(12, 0.08, 16, 100);
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.2 });
-        const ring1 = new THREE.Mesh(ringGeo, ringMat);
-        ring1.rotation.x = Math.PI / 2;
-        scene.add(ring1);
-        const ring2 = new THREE.Mesh(ringGeo, ringMat);
-        ring2.rotation.x = Math.PI / 3;
-        ring2.rotation.y = Math.PI / 4;
-        scene.add(ring2);
-
-        let mouseX = 0, mouseY = 0;
-        document.addEventListener('mousemove', (e) => {
-            mouseX = (e.clientX / window.innerWidth) * 2 - 1;
-            mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
-        });
-
-        const clock = new THREE.Clock();
-        function animate() {
-            requestAnimationFrame(animate);
-            const t = clock.getElapsedTime();
-            knot.rotation.x = t * 0.3;
-            knot.rotation.y = t * 0.4;
-            const s = 1 + Math.sin(t * 2) * 0.03;
-            knot.scale.set(s, s, s);
-            particles.rotation.y = t * 0.02;
-            ring1.rotation.z = t * 0.1;
-            ring2.rotation.z = -t * 0.15;
-            camera.position.x += (mouseX * 3 - camera.position.x) * 0.02;
-            camera.position.y += (mouseY * 3 - camera.position.y) * 0.02;
-            camera.lookAt(0, 0, 0);
-            pl1.position.x = Math.sin(t * 0.5) * 15;
-            pl1.position.y = Math.cos(t * 0.5) * 15;
-            composer.render();
-        }
-        animate();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
+        // ===== 3D =====
+        const isMobile = window.innerWidth < 768;
+        if (!isMobile) {
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a0a);
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 30);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            composer.setSize(window.innerWidth, window.innerHeight);
-        });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
 
-        // ===== АВТОРИЗАЦИЯ =====
-        let isLoggedIn = false;
+            const composer = new EffectComposer(renderer);
+            composer.addPass(new RenderPass(scene, camera));
+            composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85));
+
+            scene.add(new THREE.AmbientLight(0x404060, 0.5));
+            const pl1 = new THREE.PointLight(0x6366f1, 2, 50);
+            pl1.position.set(10, 10, 10);
+            scene.add(pl1);
+            const pl2 = new THREE.PointLight(0x8b5cf6, 2, 50);
+            pl2.position.set(-10, -10, 10);
+            scene.add(pl2);
+
+            const knot = new THREE.Mesh(
+                new THREE.TorusKnotGeometry(6, 1.8, 200, 32),
+                new THREE.MeshStandardMaterial({ color: 0x6366f1, emissive: 0x1a1a4e, metalness: 0.9, roughness: 0.15 })
+            );
+            scene.add(knot);
+
+            const particlesGeo = new THREE.BufferGeometry();
+            const pos = new Float32Array(3000 * 3);
+            for (let i = 0; i < pos.length; i++) pos[i] = (Math.random() - 0.5) * 120;
+            particlesGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const particles = new THREE.Points(particlesGeo, new THREE.PointsMaterial({
+                size: 0.15, color: 0x8888ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending
+            }));
+            scene.add(particles);
+
+            let mx = 0, my = 0;
+            document.addEventListener('mousemove', e => {
+                mx = (e.clientX / window.innerWidth) * 2 - 1;
+                my = -(e.clientY / window.innerHeight) * 2 + 1;
+            });
+
+            const clock = new THREE.Clock();
+            (function animate() {
+                requestAnimationFrame(animate);
+                const t = clock.getElapsedTime();
+                knot.rotation.x = t * 0.3;
+                knot.rotation.y = t * 0.4;
+                particles.rotation.y = t * 0.02;
+                camera.position.x += (mx * 3 - camera.position.x) * 0.02;
+                camera.position.y += (my * 3 - camera.position.y) * 0.02;
+                camera.lookAt(0, 0, 0);
+                composer.render();
+            })();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                composer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        // ===== СОСТОЯНИЕ =====
         let adminPassword = '';
+        let allEvents = [];
         let logsInterval = null;
         let statusInterval = null;
-        let consolePollInterval = null;
+        let activityChart = null;
 
+        // ===== АВТОРИЗАЦИЯ =====
         window.checkPassword = async function() {
             const input = document.getElementById('password-input');
             const errorEl = document.getElementById('error-msg');
             const password = input.value.trim();
-
-            if (!password) {
-                errorEl.textContent = 'Введите пароль';
-                return;
-            }
+            if (!password) { errorEl.textContent = 'Введите пароль'; return; }
             errorEl.textContent = '';
 
             try {
-                const response = await fetch('/api/check-password', {
+                const res = await fetch('/api/check-password', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password })
                 });
-                const data = await response.json();
+                const data = await res.json();
 
                 if (data.success) {
-                    isLoggedIn = true;
                     adminPassword = password;
-                    sessionStorage.setItem('admin_pass', password);
-
-                    const loginCard = document.getElementById('login-card');
-                    const successCard = document.getElementById('success-card');
-                    loginCard.classList.add('fade-out');
+                    document.getElementById('login-card').classList.add('fade-out');
                     setTimeout(() => {
-                        loginCard.style.display = 'none';
-                        successCard.style.display = 'block';
-                        successCard.classList.add('fade-in');
-                        loadLogs();
-                        loadBans();
-                        checkStatus();
-                        logsInterval = setInterval(loadLogs, 5000);
-                        statusInterval = setInterval(checkStatus, 10000);
+                        document.getElementById('login-card').style.display = 'none';
+                        document.getElementById('success-card').style.display = 'block';
+                        document.getElementById('success-card').classList.add('fade-in');
+                        initDashboard();
                     }, 300);
                 } else {
                     errorEl.textContent = 'Неверный пароль';
@@ -568,25 +690,61 @@
         };
 
         window.logout = function() {
-            isLoggedIn = false;
             adminPassword = '';
-            sessionStorage.removeItem('admin_pass');
             clearInterval(logsInterval);
             clearInterval(statusInterval);
-            clearInterval(consolePollInterval);
             document.getElementById('login-card').style.display = 'block';
             document.getElementById('login-card').classList.remove('fade-out');
             document.getElementById('success-card').style.display = 'none';
             document.getElementById('password-input').value = '';
         };
 
-        window.switchTab = function(name) {
+        function initDashboard() {
+            loadCommands();
+            loadLogs();
+            loadBans();
+            checkStatus();
+            logsInterval = setInterval(() => { loadLogs(); loadBans(); }, 5000);
+            statusInterval = setInterval(checkStatus, 10000);
+        }
+
+        // ===== ТЕМЫ =====
+        const themes = ['default', 'cyberpunk', 'oxford'];
+        let currentTheme = localStorage.getItem('theme') || 'default';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+
+        window.cycleTheme = function() {
+            const idx = themes.indexOf(currentTheme);
+            currentTheme = themes[(idx + 1) % themes.length];
+            document.documentElement.setAttribute('data-theme', currentTheme);
+            localStorage.setItem('theme', currentTheme);
+        };
+
+        // ===== ТАБЫ =====
+        window.switchTab = function(event, name) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
             document.getElementById('tab-' + name).classList.add('active');
             if (name === 'bans') loadBans();
+            if (name === 'stats') renderStats();
         };
+
+        // ===== КОМАНДЫ (динамические чипы) =====
+        async function loadCommands() {
+            try {
+                const res = await fetch('/api/commands', {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await res.json();
+                const container = document.getElementById('cmd-chips');
+                if (data.commands && data.commands.length > 0) {
+                    container.innerHTML = data.commands.map(c =>
+                        `<div class="chip" onclick="insertCmd('${c}')">${c}</div>`
+                    ).join('') + '<div class="chip" onclick="clearConsole()">clear</div>';
+                }
+            } catch (err) { console.error(err); }
+        }
 
         // ===== ЛОГИ =====
         async function loadLogs() {
@@ -595,44 +753,59 @@
                     headers: { 'X-Admin-Password': adminPassword }
                 });
                 const data = await res.json();
-                const container = document.getElementById('logs-container');
-
-                if (!data.events || data.events.length === 0) {
-                    container.innerHTML = '<div class="empty-logs">Пока нет событий</div>';
-                    return;
-                }
-
-                container.innerHTML = data.events.map(ev => {
-                    const date = new Date(ev.timestamp);
-                    const timeStr = date.toLocaleString('ru-RU');
-                    const action = ev.action || 'unknown';
-                    const d = ev.data || {};
-                    let label = action, cls = 'log-item', details = '';
-
-                    if (action === 'command') {
-                        label = '⌨️ Команда'; cls += ' command';
-                        details = `<div>Команда: <span>${d.command || '—'}</span></div>
-                                   <div>ID чата: <span>${d.chat_id || '—'}</span></div>`;
-                    } else if (action === 'new_message') {
-                        label = '💬 Сообщение'; cls += ' new_message';
-                        details = `<div>От: <span>${d.sender_id || '—'}</span></div>
-                                   <div>Текст: <span>${escapeHtml(d.text || '—')}</span></div>`;
-                    } else if (action === 'deletion') {
-                        label = '🗑️ Удаление'; cls += ' deletion';
-                        details = `<div>Чат: <span>${d.chat_id || '—'}</span></div>`;
-                    } else {
-                        details = `<div>${escapeHtml(JSON.stringify(d))}</div>`;
-                    }
-
-                    return `<div class="${cls}">
-                        <div class="log-header"><span>${label}</span><span>${timeStr}</span></div>
-                        <div class="log-details">${details}</div>
-                    </div>`;
-                }).join('');
+                allEvents = data.events || [];
+                renderLogs();
             } catch (err) { console.error(err); }
         }
 
-        // ===== СТАТУС БОТА =====
+        window.renderLogs = function() {
+            const container = document.getElementById('logs-container');
+            const search = document.getElementById('logs-search').value.toLowerCase();
+            const filter = document.getElementById('logs-filter').value;
+
+            let filtered = allEvents;
+            if (filter !== 'all') filtered = filtered.filter(e => e.action === filter);
+            if (search) {
+                filtered = filtered.filter(e => {
+                    const d = e.data || {};
+                    return JSON.stringify(d).toLowerCase().includes(search);
+                });
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="empty-logs">Нет событий</div>';
+                return;
+            }
+
+            container.innerHTML = filtered.map((ev, i) => {
+                const date = new Date(ev.timestamp);
+                const timeStr = date.toLocaleString('ru-RU');
+                const action = ev.action || 'unknown';
+                const d = ev.data || {};
+                let label = action, cls = 'log-item', details = '';
+
+                if (action === 'command') {
+                    label = '⌨️ Команда'; cls += ' command';
+                    details = `<div>Команда: <span>${d.command || '—'}</span></div>`;
+                } else if (action === 'new_message') {
+                    label = '💬 Сообщение'; cls += ' new_message';
+                    details = `<div>От: <span>${d.sender_id || '—'}</span></div>
+                               <div>Текст: <span>${escapeHtml(d.text || '—')}</span></div>`;
+                } else if (action === 'deletion') {
+                    label = '🗑️ Удаление'; cls += ' deletion';
+                    details = `<div>Чат: <span>${d.chat_id || '—'}</span></div>`;
+                } else {
+                    details = `<div>${escapeHtml(JSON.stringify(d))}</div>`;
+                }
+
+                return `<div class="${cls}" onclick="this.classList.toggle('expanded')">
+                    <div class="log-header"><span>${label}</span><span>${timeStr}</span></div>
+                    <div class="log-details">${details}</div>
+                </div>`;
+            }).join('');
+        };
+
+        // ===== СТАТУС =====
         async function checkStatus() {
             try {
                 const res = await fetch('/api/status', {
@@ -641,7 +814,6 @@
                 const data = await res.json();
                 const dot = document.getElementById('bot-status-dot');
                 const text = document.getElementById('bot-status-text');
-
                 if (data.online) {
                     dot.className = 'status-dot';
                     text.textContent = `Бот онлайн (${data.ping || '?'}ms)`;
@@ -667,98 +839,33 @@
                 const container = document.getElementById('bans-container');
 
                 if (!data.bans || data.bans.length === 0) {
-                    container.innerHTML = '<div class="empty-logs">Бан-лист пуст</div>';
+                    container.innerHTML = `<table class="bans-table">
+                        <thead><tr><th>ID</th><th>Username</th><th>Время</th><th>Причина</th><th></th></tr></thead>
+                        <tbody><tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,0.4);">Бан-лист пуст</td></tr></tbody>
+                    </table>`;
                     return;
                 }
 
                 container.innerHTML = `<table class="bans-table">
-                    <thead><tr><th>ID</th><th>Username</th><th>Время</th><th>Причина</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Username</th><th>Время</th><th>Причина</th><th></th></tr></thead>
                     <tbody>${data.bans.map(b => `<tr>
                         <td>${b.id || '—'}</td>
                         <td>@${b.username || 'нет'}</td>
                         <td><span class="badge ${b.time === 'forever' ? 'perm' : 'temp'}">${b.time || 'forever'}</span></td>
                         <td>${escapeHtml(b.reason || '—')}</td>
+                        <td><button class="btn-mini" onclick="removeBan(${b.id}, '${b.username || ''}')">Разбанить</button></td>
                     </tr>`).join('')}</tbody>
                 </table>`;
             } catch (err) { console.error(err); }
         }
 
-        // ===== КОНСОЛЬ =====
-        window.insertCmd = function(cmd) {
-            const input = document.getElementById('console-input');
-            input.value = cmd;
-            input.focus();
-        };
-
-        window.clearConsole = function() {
-            document.getElementById('console-output').innerHTML =
-                '<div class="console-line info">Консоль очищена.</div>';
-        };
-
-        window.executeConsoleCommand = async function() {
-            const input = document.getElementById('console-input');
-            const cmd = input.value.trim();
-            if (!cmd) return;
-
-            const output = document.getElementById('console-output');
-            output.innerHTML += `<div class="console-line cmd">> ${escapeHtml(cmd)}</div>`;
-            input.value = '';
-            output.scrollTop = output.scrollHeight;
-
+        window.removeBan = async function(id, username) {
+            if (!confirm(`Разбанить ${username || id}?`)) return;
             try {
-                const res = await fetch('/api/console', {
+                const res = await fetch('/api/bans', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminPassword },
-                    body: JSON.stringify({ command: cmd })
+                    body: JSON.stringify({ action: 'remove', ban: { id: id, username: username } })
                 });
                 const data = await res.json();
-                const cls = data.status === 'ok' ? 'success' : 'error';
-                output.innerHTML += `<div class="console-line ${cls}">${escapeHtml(data.message || JSON.stringify(data))}</div>`;
-            } catch (err) {
-                output.innerHTML += `<div class="console-line error">Ошибка: ${err.message}</div>`;
-            }
-            output.scrollTop = output.scrollHeight;
-        };
-
-        // История команд (стрелки вверх/вниз)
-        const cmdHistory = [];
-        let historyIndex = -1;
-
-        document.getElementById('console-input').addEventListener('keydown', (e) => {
-            const input = e.target;
-            if (e.key === 'Enter') {
-                if (input.value.trim()) {
-                    cmdHistory.push(input.value.trim());
-                    historyIndex = cmdHistory.length;
-                }
-                executeConsoleCommand();
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                if (cmdHistory.length > 0) {
-                    historyIndex = Math.max(0, historyIndex - 1);
-                    input.value = cmdHistory[historyIndex] || '';
-                }
-            } else if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                if (historyIndex < cmdHistory.length - 1) {
-                    historyIndex++;
-                    input.value = cmdHistory[historyIndex];
-                } else {
-                    historyIndex = cmdHistory.length;
-                    input.value = '';
-                }
-            }
-        });
-
-        document.getElementById('password-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') checkPassword();
-        });
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-    </script>
-</body>
-</html>
+                if (data.status
