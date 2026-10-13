@@ -868,4 +868,158 @@
                     body: JSON.stringify({ action: 'remove', ban: { id: id, username: username } })
                 });
                 const data = await res.json();
-                if (data.status
+                if (data.status === 'ok') loadBans();
+            } catch (err) { console.error(err); }
+        };
+
+        // ===== АНАЛИТИКА =====
+        function renderStats() {
+            const statsGrid = document.getElementById('stats-grid');
+            const total = allEvents.length;
+            const commands = allEvents.filter(e => e.action === 'command').length;
+            const messages = allEvents.filter(e => e.action === 'new_message').length;
+            const deletions = allEvents.filter(e => e.action === 'deletion').length;
+
+            statsGrid.innerHTML = `
+                <div class="stat-card"><div class="stat-value">${total}</div><div class="stat-label">Всего событий</div></div>
+                <div class="stat-card"><div class="stat-value">${commands}</div><div class="stat-label">Команд</div></div>
+                <div class="stat-card"><div class="stat-value">${messages}</div><div class="stat-label">Сообщений</div></div>
+                <div class="stat-card"><div class="stat-value">${deletions}</div><div class="stat-label">Удалений</div></div>
+            `;
+
+            // График по часам
+            const hours = Array(24).fill(0);
+            allEvents.forEach(e => {
+                const h = new Date(e.timestamp).getHours();
+                hours[h]++;
+            });
+
+            const ctx = document.getElementById('activity-chart').getContext('2d');
+            if (activityChart) activityChart.destroy();
+            activityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                        label: 'События',
+                        data: hours,
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+                        tension: 0.4,
+                        fill: true,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: 'rgba(255,255,255,0.5)' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                        y: { ticks: { color: 'rgba(255,255,255,0.5)' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                    }
+                }
+            });
+        }
+
+        // ===== КОНСОЛЬ =====
+        window.insertCmd = function(cmd) {
+            document.getElementById('console-input').value = cmd;
+            document.getElementById('console-input').focus();
+        };
+        window.clearConsole = function() {
+            document.getElementById('console-output').innerHTML = '<div class="console-line info">Консоль очищена.</div>';
+        };
+
+        window.executeConsoleCommand = async function() {
+            const input = document.getElementById('console-input');
+            const btn = document.getElementById('console-btn');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+
+            const output = document.getElementById('console-output');
+            output.innerHTML += `<div class="console-line cmd">> ${escapeHtml(cmd)}</div>`;
+            input.value = '';
+            output.scrollTop = output.scrollHeight;
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Отправка...';
+
+            try {
+                const res = await fetch('/api/console', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminPassword },
+                    body: JSON.stringify({ command: cmd })
+                });
+                const data = await res.json();
+                const cls = data.status === 'ok' ? 'success' : 'error';
+                output.innerHTML += `<div class="console-line ${cls}">${escapeHtml(data.message || JSON.stringify(data))}</div>`;
+
+                // Ждём результат от бота
+                if (cmd !== 'clear' && !cmd.startsWith('.connect') && !cmd.startsWith('.unconnect')) {
+                    let attempts = 0;
+                    const pollResult = setInterval(async () => {
+                        attempts++;
+                        try {
+                            const r = await fetch('/api/console_result', {
+                                headers: { 'X-Admin-Password': adminPassword }
+                            });
+                            const rd = await r.json();
+                            if (rd.result && rd.result.timestamp > Date.now() - 30000) {
+                                output.innerHTML += `<div class="console-line success">📥 ${escapeHtml(rd.result.result)}</div>`;
+                                output.scrollTop = output.scrollHeight;
+                                clearInterval(pollResult);
+                            }
+                        } catch (e) {}
+                        if (attempts > 20) clearInterval(pollResult);
+                    }, 1000);
+                }
+            } catch (err) {
+                output.innerHTML += `<div class="console-line error">Ошибка: ${err.message}</div>`;
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Выполнить';
+            output.scrollTop = output.scrollHeight;
+        };
+
+        // История команд
+        const cmdHistory = [];
+        let historyIndex = -1;
+        document.getElementById('console-input').addEventListener('keydown', (e) => {
+            const input = e.target;
+            if (e.key === 'Enter') {
+                if (input.value.trim()) {
+                    cmdHistory.push(input.value.trim());
+                    historyIndex = cmdHistory.length;
+                }
+                executeConsoleCommand();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (cmdHistory.length > 0) {
+                    historyIndex = Math.max(0, historyIndex - 1);
+                    input.value = cmdHistory[historyIndex] || '';
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIndex < cmdHistory.length - 1) {
+                    historyIndex++;
+                    input.value = cmdHistory[historyIndex];
+                } else {
+                    historyIndex = cmdHistory.length;
+                    input.value = '';
+                }
+            }
+        });
+
+        document.getElementById('password-input').addEventListener('keypress', e => {
+            if (e.key === 'Enter') checkPassword();
+        });
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
