@@ -2,14 +2,23 @@ import customtkinter as ctk
 import requests
 import threading
 import time
-import tkinter as tk
-from tkinter import font as tkfont
+import json
+import os
+import sys
+import math
+import random
+import re
+from tkinter import messagebox
 
-# ============ КОНФИГ ============
+# ============================================================
+# КОНФИГ
+# ============================================================
 API_URL = "https://telegramprobot.relaxdev.ru/webhook"
 APP_TOKEN = "871410danil"
 
-# Цветовые темы терминала (фон, основной текст, приглушённый)
+CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".redsave_config.json")
+HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".redsave_history.json")
+
 COLOR_THEMES = {
     1: ("#0a1929", "#4da6ff", "#2a5d8f", "Синий"),
     2: ("#0a1f0a", "#33ff33", "#1a5c1a", "Зелёный"),
@@ -21,7 +30,29 @@ COLOR_THEMES = {
     8: ("#1a1a00", "#ffff4d", "#8f8f2a", "Жёлтый"),
 }
 
-# ============ ПАЛИТРА ПРИЛОЖЕНИЯ ============
+ALIASES = {
+    "cls": "clear",
+    "q": "ping",
+    "h": "help",
+    "b": "banlist",
+    "l": "idlist",
+    "?" : "help",
+}
+
+FORTUNES = [
+    "«Код — это поэзия, только компилятор — критик.» — Неизвестный",
+    "«Преждевременная оптимизация — корень всех зол.» — Дональд Кнут",
+    "«Простота — высшая форма изящества.» — Леонардо да Винчи",
+    "«Работает? Не трогай!» — Народная мудрость",
+    "«Единственный способ писать без багов — не писать код.»",
+    "«Если отладка — это процесс удаления багов, то программирование — процесс их добавления.»",
+    "«Хороший код — это код, который легко удалить.»",
+    "«Программист — это машина, превращающая кофе в код.»",
+]
+
+# ============================================================
+# ПАЛИТРА
+# ============================================================
 class Palette:
     BG_DARK = "#0a0a0f"
     BG_PANEL = "#111118"
@@ -40,15 +71,79 @@ class Palette:
     ERROR = "#ef4444"
     WARNING = "#f59e0b"
     INFO = "#3b82f6"
-    HEADER_GRADIENT_1 = "#6366f1"
-    HEADER_GRADIENT_2 = "#8b5cf6"
 
-# ============ API КЛИЕНТ ============
+# ============================================================
+# КОНФИГ / ИСТОРИЯ
+# ============================================================
+def load_config():
+    defaults = {
+        "color": 5,
+        "font_size": 13,
+        "sound": True,
+        "lang": "ru",
+        "window_geometry": "1100x720",
+        "aliases": {},
+    }
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            defaults.update(data)
+        except Exception:
+            pass
+    return defaults
+
+def save_config(cfg):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+def save_history(history):
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history[-200:], f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+# ============================================================
+# ЗВУКИ (только Windows)
+# ============================================================
+def play_sound(kind="ok", enabled=True):
+    if not enabled:
+        return
+    try:
+        if sys.platform == "win32":
+            import winsound
+            if kind == "ok":
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            elif kind == "err":
+                winsound.MessageBeep(winsound.MB_ICONHAND)
+            elif kind == "warn":
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+    except Exception:
+        pass
+
+# ============================================================
+# API КЛИЕНТ
+# ============================================================
 class BotAPI:
     def __init__(self, base_url, token):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.headers = {"X-App-Token": token, "Content-Type": "application/json"}
+        self._cache = {}
+        self._cache_ttl = 5
 
     def _post(self, endpoint, data=None):
         url = f"{self.base_url}/api/{endpoint}"
@@ -77,94 +172,97 @@ class BotAPI:
     def command(self, cmd): return self._post("command", {"command": cmd})
     def pause(self): return self._post("pause")
     def resume(self): return self._post("resume")
-    def banlist(self): return self._post("banlist")
 
+    def command_cached(self, cmd, ttl=5):
+        key = cmd.strip().lower()
+        now = time.time()
+        if key in self._cache:
+            ts, val = self._cache[key]
+            if now - ts < ttl:
+                return val
+        result = self.command(cmd)
+        self._cache[key] = (now, result)
+        return result
 
-# ============ ВСПОМОГАТЕЛЬНЫЕ ВИДЖЕТЫ ============
+# ============================================================
+# АНИМИРОВАННАЯ ТОЧКА
+# ============================================================
+import tkinter as tk
 
 class AnimatedDot(tk.Canvas):
-    """Пульсирующая точка статуса."""
-    def __init__(self, parent, color=Palette.SUCCESS, size=14, bg=Palette.BG_PANEL):
+    def __init__(self, parent, color=Palette.SUCCESS, size=14, bg=Palette.BG_CARD):
         super().__init__(parent, width=size, height=size, bg=bg, highlightthickness=0)
         self.size = size
         self.color = color
-        self.bg = bg
         self.phase = 0
         self.dot = self.create_oval(2, 2, size-2, size-2, fill=color, outline="")
         self._animate()
 
     def set_color(self, color):
         self.color = color
-        self.itemconfig(self.dot, fill=color)
+        try:
+            self.itemconfig(self.dot, fill=color)
+        except Exception:
+            pass
 
     def _animate(self):
         if not self.winfo_exists():
             return
         try:
             self.phase = (self.phase + 1) % 40
-            # плавная пульсация размера
-            import math
             scale = 1 + 0.15 * math.sin(self.phase / 40 * 2 * math.pi)
             cx, cy = self.size / 2, self.size / 2
             r = (self.size - 4) / 2 * scale
             self.coords(self.dot, cx - r, cy - r, cx + r, cy + r)
         except Exception:
             pass
-        self.after(50, self._animate)
+        try:
+            self.after(50, self._animate)
+        except Exception:
+            pass
 
-
+# ============================================================
+# СТАТ-КАРТОЧКА
+# ============================================================
 class StatCard(ctk.CTkFrame):
-    """Карточка статистики."""
     def __init__(self, parent, label, value="—", accent=Palette.ACCENT):
         super().__init__(parent, fg_color=Palette.BG_CARD, corner_radius=12,
                          border_width=1, border_color=Palette.BORDER)
-        self.accent = accent
-
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=16, pady=14)
-
         self.value_label = ctk.CTkLabel(
             inner, text=value, font=ctk.CTkFont(size=24, weight="bold"),
             text_color=accent
         )
         self.value_label.pack(anchor="w")
-
-        self.label_widget = ctk.CTkLabel(
+        ctk.CTkLabel(
             inner, text=label.upper(), font=ctk.CTkFont(size=10, weight="bold"),
             text_color=Palette.TEXT_DIM2
-        )
-        self.label_widget.pack(anchor="w", pady=(2, 0))
+        ).pack(anchor="w", pady=(2, 0))
 
     def set_value(self, value):
         self.value_label.configure(text=value)
 
-
+# ============================================================
+# КНОПКА САЙДБАРА
+# ============================================================
 class SidebarButton(ctk.CTkFrame):
-    """Кнопка боковой панели."""
     def __init__(self, parent, text, icon, command=None, active=False):
         super().__init__(parent, fg_color="transparent", height=42)
         self.pack_propagate(False)
-
         self.command = command
         self.active = active
-
         self.icon_label = ctk.CTkLabel(
             self, text=icon, font=ctk.CTkFont(size=16),
-            text_color=Palette.ACCENT if active else Palette.TEXT_DIM,
-            width=32
+            text_color=Palette.ACCENT if active else Palette.TEXT_DIM, width=32
         )
         self.icon_label.pack(side="left", padx=(10, 0))
-
         self.text_label = ctk.CTkLabel(
             self, text=text, font=ctk.CTkFont(size=13),
-            text_color=Palette.TEXT if active else Palette.TEXT_DIM,
-            anchor="w"
+            text_color=Palette.TEXT if active else Palette.TEXT_DIM, anchor="w"
         )
         self.text_label.pack(side="left", padx=(4, 0), fill="x", expand=True)
-
         self._set_active(active)
-
-        # hover
         for w in (self, self.icon_label, self.text_label):
             w.bind("<Enter>", self._on_enter)
             w.bind("<Leave>", self._on_leave)
@@ -193,39 +291,531 @@ class SidebarButton(ctk.CTkFrame):
         if self.command:
             self.command()
 
+# ============================================================
+# ТЕРМИНАЛ
+# ============================================================
+class Terminal(ctk.CTkFrame):
+    def __init__(self, parent, app, **kwargs):
+        super().__init__(parent, fg_color="transparent", **kwargs)
+        self.app = app
+        self.history = load_history()
+        self.history_index = len(self.history)
+        self.aliases = dict(ALIASES)
+        self.aliases.update(app.config.get("aliases", {}))
+        self.sticky_scroll = True
+        self.filter_text = ""
+        self.build()
 
-# ============ ГЛАВНОЕ ОКНО ============
+    def build(self):
+        # Заголовок терминала
+        self.term_container = ctk.CTkFrame(
+            self, fg_color=Palette.BG_DARK, corner_radius=12,
+            border_width=1, border_color=Palette.BORDER
+        )
+        self.term_container.pack(fill="both", expand=True)
+        self.term_container.grid_columnconfigure(0, weight=1)
+        self.term_container.grid_rowconfigure(1, weight=1)
+
+        title_bar = ctk.CTkFrame(self.term_container, fg_color=Palette.BG_PANEL,
+                                  corner_radius=0, height=36)
+        title_bar.grid(row=0, column=0, sticky="ew")
+        title_bar.grid_propagate(False)
+
+        ctk.CTkLabel(title_bar, text="  ● ● ●", font=ctk.CTkFont(size=12),
+                      text_color=Palette.TEXT_DIM2).pack(side="left", padx=8)
+        self.term_title = ctk.CTkLabel(
+            title_bar, text="RedSave Terminal",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=Palette.TEXT_DIM
+        )
+        self.term_title.pack(side="left", padx=8)
+
+        self.filter_entry = ctk.CTkEntry(
+            title_bar, placeholder_text="фильтр…", width=160, height=26,
+            font=ctk.CTkFont(size=11), fg_color=Palette.BG_CARD,
+            border_width=1, border_color=Palette.BORDER,
+            text_color=Palette.TEXT, placeholder_text_color=Palette.TEXT_DIM2
+        )
+        self.filter_entry.pack(side="right", padx=8)
+        self.filter_entry.bind("<KeyRelease>", self._on_filter_change)
+
+        # Область вывода
+        self.terminal = ctk.CTkTextbox(
+            self.term_container,
+            font=ctk.CTkFont(family="Consolas", size=self.app.config.get("font_size", 13)),
+            fg_color=Palette.BG_DARK, border_width=0, corner_radius=0,
+            text_color=Palette.TEXT, wrap="word"
+        )
+        self.terminal.grid(row=1, column=0, sticky="nsew")
+        for ev in ("<Key>", "<<Paste>>", "<BackSpace>", "<Delete>", "<Control-v>", "<Control-V>"):
+            self.terminal.bind(ev, lambda e: "break")
+        self.terminal.bind("<Control-c>", self._copy_selection)
+        self.terminal.bind("<Control-C>", self._copy_selection)
+        self.terminal.bind("<MouseWheel>", self._on_mousewheel)
+        self.terminal.bind("<Button-4>", self._on_mousewheel)
+        self.terminal.bind("<Button-5>", self._on_mousewheel)
+        self.terminal.bind("<Button-3>", lambda e: self._clear_terminal())
+        self.terminal.bind("<Button-1>", self._on_terminal_click)
+
+        # Строка ввода
+        input_container = ctk.CTkFrame(self.term_container, fg_color=Palette.BG_INPUT,
+                                        corner_radius=0, height=48)
+        input_container.grid(row=2, column=0, sticky="ew")
+        input_container.grid_propagate(False)
+
+        self.prompt = ctk.CTkLabel(
+            input_container, text="❯",
+            font=ctk.CTkFont(family="Consolas", size=16, weight="bold"),
+            text_color=Palette.ACCENT
+        )
+        self.prompt.pack(side="left", padx=(14, 8))
+
+        self.entry = ctk.CTkEntry(
+            input_container,
+            placeholder_text="Команда... (help — справка, ↑↓ — история, Tab — автодополнение)",
+            font=ctk.CTkFont(family="Consolas", size=self.app.config.get("font_size", 13)),
+            fg_color="transparent", border_width=0,
+            text_color=Palette.TEXT, placeholder_text_color=Palette.TEXT_DIM2
+        )
+        self.entry.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8)
+        self.entry.bind("<Return>", lambda e: self.on_enter())
+        self.entry.bind("<Shift-Return>", lambda e: None)
+        self.entry.bind("<Up>", self.history_up)
+        self.entry.bind("<Down>", self.history_down)
+        self.entry.bind("<Tab>", self.autocomplete)
+        self.entry.bind("<Control-l>", lambda e: self._clear_terminal())
+        self.entry.bind("<Control-v>", self._paste)
+        self.entry.bind("<Control-V>", self._paste)
+        self.entry.focus_set()
+
+        ctk.CTkButton(
+            input_container, text="Enter ⏎", width=80, height=32,
+            fg_color=Palette.ACCENT, hover_color=Palette.ACCENT_HOVER,
+            text_color="#ffffff", corner_radius=8,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self.on_enter
+        ).pack(side="right", padx=(0, 12), pady=8)
+
+        # Приветствие с эффектом печатной машинки
+        self.typing_queue = [
+            ("RedSave Terminal v3.0", "header"),
+            (f"API: {API_URL}", "info"),
+            (f"Fortune: {random.choice(FORTUNES)}", "info"),
+            ("Введите 'help' для списка команд", "info"),
+            ("", "normal"),
+        ]
+        self.after(150, self._type_next)
+
+    def _type_next(self):
+        if not self.typing_queue:
+            return
+        text, kind = self.typing_queue.pop(0)
+        if text:
+            self._animate_typing(text, kind)
+        else:
+            self.write("", kind)
+            self.after(150, self._type_next)
+
+    def _animate_typing(self, full_text, kind, idx=0):
+        if idx > len(full_text):
+            self.after(150, self._type_next)
+            return
+        partial = full_text[:idx]
+        self.terminal.configure(state="normal")
+        # удаляем предыдущую версию строки
+        try:
+            self.terminal.delete("end-2l", "end-1l")
+        except Exception:
+            pass
+        self.terminal.insert("end", partial + "\n", f"tag_{kind}")
+        self._apply_tag(f"tag_{kind}", kind)
+        self.terminal.see("end")
+        self.terminal.configure(state="disabled")
+        self.after(15, lambda: self._animate_typing(full_text, kind, idx + 1))
+
+    def _apply_tag(self, tag, kind):
+        colors = {
+            "cmd": Palette.INFO, "ok": Palette.SUCCESS, "err": Palette.ERROR,
+            "warn": Palette.WARNING, "info": Palette.TEXT_DIM2,
+            "header": Palette.ACCENT_GLOW, "id": "#fbbf24", "date": "#a78bfa",
+        }
+        if kind in colors:
+            self.terminal.tag_config(tag, foreground=colors[kind])
+
+    def write(self, text, kind="normal"):
+        self.terminal.configure(state="normal")
+        tag = f"tag_{kind}"
+        self.terminal.insert("end", text + "\n", tag)
+        self._apply_tag(tag, kind)
+        if self.sticky_scroll:
+            self.terminal.see("end")
+        self.terminal.configure(state="disabled")
+
+    def _clear_terminal(self):
+        self.terminal.configure(state="normal")
+        self.terminal.delete("1.0", "end")
+        self.terminal.configure(state="disabled")
+
+    def _copy_selection(self, event=None):
+        try:
+            text = self.terminal.get("sel.first", "sel.last")
+            if text:
+                self.clipboard_clear()
+                self.clipboard_append(text)
+        except Exception:
+            pass
+        return "break"
+
+    def _paste(self, event=None):
+        try:
+            text = self.clipboard_get()
+            self.entry.insert("end", text)
+        except Exception:
+            pass
+        return "break"
+
+    def _on_mousewheel(self, event):
+        # Ctrl + wheel = zoom
+        if event.state & 0x0004:
+            delta = 1 if getattr(event, "delta", 0) > 0 or event.num == 4 else -1
+            self.app.config["font_size"] = max(8, min(24, self.app.config.get("font_size", 13) + delta))
+            self.app._apply_font_size()
+            return "break"
+        # обычный скролл — проверяем sticky
+        try:
+            top, bottom = self.terminal.yview()
+            self.sticky_scroll = bottom >= 0.99
+        except Exception:
+            pass
+
+    def _on_terminal_click(self, event=None):
+        # клик по ID копирует его
+        try:
+            index = self.terminal.index(f"@{event.x},{event.y}")
+            line = self.terminal.get(f"{index} linestart", f"{index} lineend")
+            m = re.search(r"\b\d{5,}\b", line)
+            if m:
+                self.clipboard_clear()
+                self.clipboard_append(m.group(0))
+                self.app.toast(f"Скопировано: {m.group(0)}")
+        except Exception:
+            pass
+
+    def _on_filter_change(self, event=None):
+        self.filter_text = self.filter_entry.get().strip().lower()
+        # просто подсвечиваем ничего, но фильтр в будущем
+
+    def on_enter(self):
+        cmd = self.entry.get().strip()
+        self.entry.delete(0, "end")
+        if not cmd:
+            return
+        if not self.history or self.history[-1] != cmd:
+            self.history.append(cmd)
+            save_history(self.history)
+        self.history_index = len(self.history)
+        self.run(cmd)
+
+    def history_up(self, event=None):
+        if not self.history:
+            return "break"
+        self.history_index = max(0, self.history_index - 1)
+        self.entry.delete(0, "end")
+        self.entry.insert(0, self.history[self.history_index])
+        return "break"
+
+    def history_down(self, event=None):
+        if not self.history:
+            return "break"
+        self.history_index = min(len(self.history), self.history_index + 1)
+        self.entry.delete(0, "end")
+        if self.history_index < len(self.history):
+            self.entry.insert(0, self.history[self.history_index])
+        return "break"
+
+    def autocomplete(self, event=None):
+        current = self.entry.get().strip().lower()
+        all_cmds = ["ping", "ban", "unban", "banlist", "checkban",
+                    "idlist", "ai", "data", "help", "color", "clear",
+                    "calc", "alias", "config", "uptime", "mem", "fortune",
+                    "export", "mute", "lang", "reset"]
+        matches = [c for c in all_cmds if c.startswith(current) and current]
+        if len(matches) == 1:
+            self.entry.delete(0, "end")
+            self.entry.insert(0, matches[0] + " ")
+        elif matches:
+            self.write("  ".join(matches), "info")
+        return "break"
+
+    # ------------------------------------------------------------
+    # ЗАПУСК КОМАНДЫ
+    # ------------------------------------------------------------
+    def run(self, raw):
+        low = raw.strip().lower()
+        parts = low.split(maxsplit=1)
+        cmd = parts[0] if parts else ""
+        arg = parts[1] if len(parts) > 1 else ""
+
+        # алиасы
+        if cmd in self.aliases:
+            cmd = self.aliases[cmd]
+            raw = cmd + (" " + arg if arg else "")
+
+        # --- локальные ---
+        if cmd == "clear":
+            self._clear_terminal()
+            return
+
+        if cmd == "help":
+            self.write(f"❯ {raw}", "cmd")
+            self.write("Доступные команды:", "info")
+            self.write("  ping              — пинг", "info")
+            self.write("  ban ID [time] [reason] — забанить", "info")
+            self.write("  unban ID          — разбанить", "info")
+            self.write("  banlist           — список банов", "info")
+            self.write("  checkban ID       — проверить бан", "info")
+            self.write("  idlist            — список пользователей", "info")
+            self.write("  ai вопрос         — спросить AI", "info")
+            self.write("  data              — текущее время", "info")
+            self.write("  calc выражение    — локальный калькулятор", "info")
+            self.write("  alias name=cmd    — создать алиас", "info")
+            self.write("  config            — показать настройки", "info")
+            self.write("  config font N     — сменить размер шрифта", "info")
+            self.write("  color N           — сменить цвет терминала (1-8)", "info")
+            self.write("  color list        — список цветов", "info")
+            self.write("  mute / unmute     — звук вкл/выкл", "info")
+            self.write("  lang ru / en      — язык интерфейса", "info")
+            self.write("  fortune           — случайная цитата", "info")
+            self.write("  uptime            — время работы приложения", "info")
+            self.write("  mem               — потребление RAM", "info")
+            self.write("  export <path>     — сохранить последний вывод", "info")
+            self.write("  reset             — сброс настроек", "info")
+            self.write("  clear             — очистить терминал", "info")
+            self.write("")
+            return
+
+        if cmd == "color":
+            if arg == "list":
+                self.write(f"❯ {raw}", "cmd")
+                for n, (_, _, _, name) in COLOR_THEMES.items():
+                    marker = " ←" if n == self.app.current_color else ""
+                    self.write(f"  {n} — {name}{marker}", "info")
+                self.write("")
+                return
+            try:
+                n = int(arg)
+                self.write(f"❯ {raw}", "cmd")
+                if self.app._apply_color(n):
+                    self.write(f"✅ Цвет изменён: {COLOR_THEMES[n][3]}", "ok")
+                    self.app.toast(f"Цвет: {COLOR_THEMES[n][3]}")
+                else:
+                    self.write("❌ Неверный цвет. Доступно 1-8", "err")
+                self.write("")
+                return
+            except Exception:
+                self.write("❌ Использование: color N (1-8) или color list", "err")
+                return
+
+        if cmd == "calc":
+            self.write(f"❯ {raw}", "cmd")
+            try:
+                allowed = set("0123456789+-*/(). %")
+                if not all(c in allowed for c in arg):
+                    raise ValueError("Недопустимые символы")
+                result = eval(arg, {"__builtins__": {}}, {})
+                self.write(f"  = {result}", "ok")
+            except Exception as e:
+                self.write(f"❌ Ошибка: {e}", "err")
+            self.write("")
+            return
+
+        if cmd == "alias":
+            if "=" in arg:
+                name, cmd_val = arg.split("=", 1)
+                name, cmd_val = name.strip(), cmd_val.strip()
+                self.aliases[name] = cmd_val
+                self.app.config.setdefault("aliases", {})[name] = cmd_val
+                save_config(self.app.config)
+                self.write(f"✅ Алиас: {name} → {cmd_val}", "ok")
+            else:
+                self.write(f"❯ {raw}", "cmd")
+                for k, v in self.aliases.items():
+                    self.write(f"  {k} → {v}", "info")
+                self.write("")
+            return
+
+        if cmd == "config":
+            if not arg:
+                self.write(f"❯ {raw}", "cmd")
+                for k, v in self.app.config.items():
+                    self.write(f"  {k}: {v}", "info")
+                self.write("")
+                return
+            if arg.startswith("font"):
+                try:
+                    n = int(arg.split()[1])
+                    self.app.config["font_size"] = max(8, min(24, n))
+                    save_config(self.app.config)
+                    self.app._apply_font_size()
+                    self.write(f"✅ Шрифт: {n}", "ok")
+                except Exception:
+                    self.write("❌ Использование: config font N", "err")
+                return
+            return
+
+        if cmd == "mute":
+            self.app.config["sound"] = False
+            save_config(self.app.config)
+            self.write("🔇 Звук выключен", "ok")
+            return
+
+        if cmd == "unmute":
+            self.app.config["sound"] = True
+            save_config(self.app.config)
+            self.write("🔊 Звук включён", "ok")
+            play_sound("ok", True)
+            return
+
+        if cmd == "lang":
+            if arg in ("ru", "en"):
+                self.app.config["lang"] = arg
+                save_config(self.app.config)
+                self.write(f"✅ Язык: {arg}", "ok")
+            else:
+                self.write("❌ lang ru / lang en", "err")
+            return
+
+        if cmd == "fortune":
+            self.write(random.choice(FORTUNES), "info")
+            return
+
+        if cmd == "uptime":
+            up = int(time.time() - self.app.start_time)
+            h, rem = divmod(up, 3600)
+            m, s = divmod(rem, 60)
+            self.write(f"⏱ {h}ч {m}м {s}с", "info")
+            return
+
+        if cmd == "mem":
+            try:
+                import psutil
+                p = psutil.Process(os.getpid())
+                mb = p.memory_info().rss / 1024 / 1024
+                self.write(f"💾 {mb:.1f} MB", "info")
+            except Exception:
+                self.write("📦 psutil не установлен", "warn")
+            return
+
+        if cmd == "export":
+            path = arg or "export.txt"
+            try:
+                text = self.terminal.get("1.0", "end")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+                self.write(f"✅ Сохранено в {path}", "ok")
+            except Exception as e:
+                self.write(f"❌ {e}", "err")
+            return
+
+        if cmd == "reset":
+            self.app.config = {
+                "color": 5, "font_size": 13, "sound": True, "lang": "ru",
+                "window_geometry": "1100x720", "aliases": {},
+            }
+            save_config(self.app.config)
+            self.app._apply_color(5)
+            self.app._apply_font_size()
+            self.write("✅ Настройки сброшены", "ok")
+            return
+
+        # --- сетевые ---
+        self.write(f"❯ {raw}", "cmd")
+        self._progress_start()
+
+        def task():
+            data = self.app.api.command(raw)
+            self.after(0, self._progress_stop)
+            if "error" in data:
+                self.after(0, lambda: self.write(f"❌ {data['error']}", "err"))
+                self.after(0, lambda: play_sound("err", self.app.config.get("sound", True)))
+                self.after(0, lambda: self.app.toast(data["error"], "err"))
+            else:
+                result = data.get("result", "")
+                for line in result.split("\n"):
+                    self.after(0, lambda l=line: self._write_highlighted(l))
+                self.after(0, lambda: play_sound("ok", self.app.config.get("sound", True)))
+                self.after(0, lambda: self.app.mini_log(f"✓ {cmd}", "ok"))
+                self.after(0, lambda: self.app.toast("OK"))
+            self.after(0, lambda: self.write(""))
+        threading.Thread(target=task, daemon=True).start()
+
+    def _write_highlighted(self, line):
+        # Подсветка ID и дат
+        self.terminal.configure(state="normal")
+        parts = re.split(r"(\b\d{5,}\b|\d{2}\.\d{2}\.\d{4})", line)
+        for i, part in enumerate(parts):
+            if not part:
+                continue
+            if re.fullmatch(r"\d{5,}", part):
+                tag = f"id_{time.time_ns()}"
+                self.terminal.insert("end", part, tag)
+                self.terminal.tag_config(tag, foreground="#fbbf24")
+            elif re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", part):
+                tag = f"date_{time.time_ns()}"
+                self.terminal.insert("end", part, tag)
+                self.terminal.tag_config(tag, foreground="#a78bfa")
+            else:
+                self.terminal.insert("end", part, "normal")
+        self.terminal.insert("end", "\n")
+        if self.sticky_scroll:
+            self.terminal.see("end")
+        self.terminal.configure(state="disabled")
+
+    def _progress_start(self):
+        if hasattr(self, "progress") and self.progress.winfo_exists():
+            return
+        self.progress = ctk.CTkProgressBar(self.term_container, height=2,
+                                            progress_color=Palette.ACCENT)
+        self.progress.grid(row=3, column=0, sticky="ew")
+        self.progress.configure(mode="indeterminate")
+        self.progress.start()
+
+    def _progress_stop(self):
+        if hasattr(self, "progress") and self.progress.winfo_exists():
+            self.progress.stop()
+            self.progress.destroy()
+
+
+# ============================================================
+# ГЛАВНОЕ ОКНО
+# ============================================================
 class App(ctk.CTk):
     def __init__(self):
         super().__init__(fg_color=Palette.BG_DARK)
         self.title("RedSave Control")
-        self.geometry("1100x720")
+        self.config = load_config()
+        self.geometry(self.config.get("window_geometry", "1100x720"))
         self.minsize(900, 600)
-
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
         self.api = BotAPI(API_URL, APP_TOKEN)
         self.paused = False
         self._status_running = True
-        self.current_color = 5
-        self.cmd_history = []
-        self.history_index = -1
+        self.current_color = self.config.get("color", 5)
         self.current_tab = "dashboard"
+        self.start_time = time.time()
 
         self._build_ui()
-        self._apply_color(5)
+        self._apply_color(self.current_color)
+        self._apply_font_size()
         self._start_status_loop()
-        self._poll_stats()
 
-    # ================================================================
-    # СБОРКА UI
-    # ================================================================
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
     def _build_ui(self):
-        # Сетка: сайдбар + контент
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
-
         self._build_sidebar()
         self._build_content()
 
@@ -234,624 +824,251 @@ class App(ctk.CTk):
         sidebar.grid(row=0, column=0, sticky="nsw")
         sidebar.grid_propagate(False)
 
-        # Логотип
-        logo_frame = ctk.CTkFrame(sidebar, fg_color="transparent", height=70)
-        logo_frame.pack(fill="x", pady=(16, 8))
-        logo_frame.pack_propagate(False)
+        logo = ctk.CTkFrame(sidebar, fg_color="transparent", height=70)
+        logo.pack(fill="x", pady=(16, 8))
+        logo.pack_propagate(False)
+        ctk.CTkLabel(logo, text="◆", font=ctk.CTkFont(size=26, weight="bold"),
+                      text_color=Palette.ACCENT).pack(side="left", padx=(20, 8))
+        tf = ctk.CTkFrame(logo, fg_color="transparent")
+        tf.pack(side="left", fill="y")
+        ctk.CTkLabel(tf, text="RedSave", font=ctk.CTkFont(size=16, weight="bold"),
+                      text_color=Palette.TEXT, anchor="w").pack(anchor="w", pady=(14, 0))
+        ctk.CTkLabel(tf, text="Control Panel", font=ctk.CTkFont(size=10),
+                      text_color=Palette.TEXT_DIM2, anchor="w").pack(anchor="w")
 
-        ctk.CTkLabel(
-            logo_frame, text="◆", font=ctk.CTkFont(size=26, weight="bold"),
-            text_color=Palette.ACCENT
-        ).pack(side="left", padx=(20, 8))
-
-        title_frame = ctk.CTkFrame(logo_frame, fg_color="transparent")
-        title_frame.pack(side="left", fill="y")
-
-        ctk.CTkLabel(
-            title_frame, text="RedSave", font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=Palette.TEXT, anchor="w"
-        ).pack(anchor="w", pady=(14, 0))
-
-        ctk.CTkLabel(
-            title_frame, text="Control Panel", font=ctk.CTkFont(size=10),
-            text_color=Palette.TEXT_DIM2, anchor="w"
-        ).pack(anchor="w")
-
-        # Разделитель
         ctk.CTkFrame(sidebar, fg_color=Palette.BORDER, height=1).pack(fill="x", padx=16, pady=(8, 12))
 
-        # Кнопки навигации
         self.nav_buttons = {}
-        nav_items = [
-            ("dashboard", "🏠", "Дашборд"),
-            ("terminal", "▶", "Терминал"),
-            ("bans", "🚫", "Баны"),
-            ("settings", "⚙", "Настройки"),
-        ]
-
-        for key, icon, label in nav_items:
-            btn = SidebarButton(sidebar, label, icon, command=lambda k=key: self._switch_tab(k),
-                                active=(key == "dashboard"))
+        nav = [("dashboard", "🏠", "Дашборд"),
+               ("terminal", "▶", "Терминал"),
+               ("bans", "🚫", "Баны"),
+               ("settings", "⚙", "Настройки")]
+        for k, icon, lbl in nav:
+            btn = SidebarButton(sidebar, lbl, icon,
+                                 command=lambda kk=k: self._switch_tab(kk),
+                                 active=(k == "dashboard"))
             btn.pack(fill="x", padx=8, pady=2)
-            self.nav_buttons[key] = btn
+            self.nav_buttons[k] = btn
 
-        # Внизу — статус
         spacer = ctk.CTkFrame(sidebar, fg_color="transparent")
         spacer.pack(fill="both", expand=True)
 
         status_frame = ctk.CTkFrame(sidebar, fg_color=Palette.BG_CARD, corner_radius=10)
         status_frame.pack(fill="x", padx=12, pady=12)
-
         inner = ctk.CTkFrame(status_frame, fg_color="transparent")
         inner.pack(fill="x", padx=12, pady=12)
-
         row = ctk.CTkFrame(inner, fg_color="transparent")
         row.pack(fill="x")
-
         self.status_dot = AnimatedDot(row, color=Palette.TEXT_DIM2, bg=Palette.BG_CARD)
         self.status_dot.pack(side="left", padx=(0, 8))
-
-        self.status_label = ctk.CTkLabel(
-            row, text="Проверка...", font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=Palette.TEXT
-        )
+        self.status_label = ctk.CTkLabel(row, text="Проверка...",
+                                          font=ctk.CTkFont(size=12, weight="bold"),
+                                          text_color=Palette.TEXT)
         self.status_label.pack(side="left")
-
-        self.ping_label = ctk.CTkLabel(
-            inner, text="— ms", font=ctk.CTkFont(size=10),
-            text_color=Palette.TEXT_DIM2, anchor="w"
-        )
+        self.ping_label = ctk.CTkLabel(inner, text="— ms", font=ctk.CTkFont(size=10),
+                                        text_color=Palette.TEXT_DIM2, anchor="w")
         self.ping_label.pack(anchor="w", pady=(4, 0))
 
     def _build_content(self):
-        # Контейнер контента
         content = ctk.CTkFrame(self, fg_color=Palette.BG_DARK, corner_radius=0)
         content.grid(row=0, column=1, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(1, weight=1)
 
-        # Заголовок
         header = ctk.CTkFrame(content, fg_color=Palette.BG_PANEL, corner_radius=0, height=70)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_propagate(False)
-
-        self.header_title = ctk.CTkLabel(
-            header, text="Дашборд", font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=Palette.TEXT
-        )
+        self.header_title = ctk.CTkLabel(header, text="Дашборд",
+                                          font=ctk.CTkFont(size=20, weight="bold"),
+                                          text_color=Palette.TEXT)
         self.header_title.pack(side="left", padx=24)
-
-        # Кнопка паузы в хедере
-        self.pause_btn = ctk.CTkButton(
-            header, text="⏸  Пауза", width=120, height=36,
-            fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
-            text_color=Palette.TEXT, corner_radius=8,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._toggle_pause
-        )
+        self.pause_btn = ctk.CTkButton(header, text="⏸  Пауза", width=120, height=36,
+                                        fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
+                                        text_color=Palette.TEXT, corner_radius=8,
+                                        font=ctk.CTkFont(size=12, weight="bold"),
+                                        command=self._toggle_pause)
         self.pause_btn.pack(side="right", padx=(8, 24), pady=17)
 
-        # Контент-область (меняется по табам)
         self.content_area = ctk.CTkFrame(content, fg_color="transparent")
         self.content_area.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
         self.content_area.grid_columnconfigure(0, weight=1)
         self.content_area.grid_rowconfigure(0, weight=1)
 
-        # Создаём все вкладки, но показываем только активную
-        self.tabs = {}
-        self.tabs["dashboard"] = self._build_dashboard_tab()
-        self.tabs["terminal"] = self._build_terminal_tab()
-        self.tabs["bans"] = self._build_bans_tab()
-        self.tabs["settings"] = self._build_settings_tab()
-
+        self.tabs = {
+            "dashboard": self._build_dashboard_tab(),
+            "terminal": self._build_terminal_tab(),
+            "bans": self._build_bans_tab(),
+            "settings": self._build_settings_tab(),
+        }
         self._show_tab("dashboard")
 
-    # ================================================================
-    # ВКЛАДКА: ДАШБОРД
-    # ================================================================
     def _build_dashboard_tab(self):
         tab = ctk.CTkFrame(self.content_area, fg_color="transparent")
         tab.grid_columnconfigure((0, 1, 2), weight=1, uniform="cards")
         tab.grid_rowconfigure(2, weight=1)
 
-        # Карточки статистики
         self.card_users = StatCard(tab, "Пользователей", "—", Palette.INFO)
         self.card_users.grid(row=0, column=0, sticky="ew", padx=(0, 8), pady=(0, 12))
-
         self.card_bans = StatCard(tab, "Банов", "—", Palette.ERROR)
         self.card_bans.grid(row=0, column=1, sticky="ew", padx=8, pady=(0, 12))
-
         self.card_ping = StatCard(tab, "Пинг API", "—", Palette.SUCCESS)
         self.card_ping.grid(row=0, column=2, sticky="ew", padx=(8, 0), pady=(0, 12))
 
-        # Быстрые действия
-        actions_card = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=12,
-                                    border_width=1, border_color=Palette.BORDER)
-        actions_card.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 12))
-
-        ctk.CTkLabel(
-            actions_card, text="Быстрые действия",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=Palette.TEXT
-        ).pack(anchor="w", padx=20, pady=(16, 12))
-
-        btn_row = ctk.CTkFrame(actions_card, fg_color="transparent")
-        btn_row.pack(fill="x", padx=20, pady=(0, 18))
-
-        quick_buttons = [
+        actions = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=12,
+                                border_width=1, border_color=Palette.BORDER)
+        actions.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        ctk.CTkLabel(actions, text="Быстрые действия",
+                      font=ctk.CTkFont(size=13, weight="bold"),
+                      text_color=Palette.TEXT).pack(anchor="w", padx=20, pady=(16, 12))
+        row = ctk.CTkFrame(actions, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(0, 18))
+        for text, cmd, color in [
             ("🏓  Ping", "ping", Palette.INFO),
             ("📋  Banlist", "banlist", Palette.WARNING),
             ("🔢  ID list", "idlist", Palette.ACCENT),
             ("🕒  Date", "data", Palette.ACCENT_GLOW),
             ("❓  Help", "help", Palette.TEXT_DIM),
-        ]
-        for text, cmd, color in quick_buttons:
-            ctk.CTkButton(
-                btn_row, text=text, width=110, height=40,
-                fg_color=Palette.BG_PANEL, hover_color=Palette.BG_CARD_HOVER,
-                text_color=color, corner_radius=10,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                border_width=1, border_color=Palette.BORDER,
-                command=lambda c=cmd: self._run_command(c)
-            ).pack(side="left", padx=(0, 8))
+        ]:
+            ctk.CTkButton(row, text=text, width=110, height=40,
+                           fg_color=Palette.BG_PANEL, hover_color=Palette.BG_CARD_HOVER,
+                           text_color=color, corner_radius=10,
+                           font=ctk.CTkFont(size=12, weight="bold"),
+                           border_width=1, border_color=Palette.BORDER,
+                           command=lambda c=cmd: self._send_to_terminal(c)
+                           ).pack(side="left", padx=(0, 8))
 
-        # Мини-лог событий
         log_card = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=12,
-                                border_width=1, border_color=Palette.BORDER)
+                                 border_width=1, border_color=Palette.BORDER)
         log_card.grid(row=2, column=0, columnspan=3, sticky="nsew")
-
-        header_row = ctk.CTkFrame(log_card, fg_color="transparent")
-        header_row.pack(fill="x", padx=20, pady=(16, 8))
-
-        ctk.CTkLabel(
-            header_row, text="Последние события",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=Palette.TEXT
-        ).pack(side="left")
-
-        self.mini_log = ctk.CTkTextbox(
-            log_card, font=ctk.CTkFont(family="Consolas", size=12),
-            fg_color=Palette.BG_DARK, border_width=0, corner_radius=8,
-            text_color=Palette.TEXT_DIM, wrap="word"
-        )
+        ctk.CTkLabel(log_card, text="Последние события",
+                      font=ctk.CTkFont(size=13, weight="bold"),
+                      text_color=Palette.TEXT).pack(anchor="w", padx=20, pady=(16, 8))
+        self.mini_log = ctk.CTkTextbox(log_card,
+                                        font=ctk.CTkFont(family="Consolas", size=12),
+                                        fg_color=Palette.BG_DARK, border_width=0, corner_radius=8,
+                                        text_color=Palette.TEXT_DIM, wrap="word")
         self.mini_log.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         self.mini_log.configure(state="disabled")
-
         return tab
 
-    # ================================================================
-    # ВКЛАДКА: ТЕРМИНАЛ
-    # ================================================================
     def _build_terminal_tab(self):
         tab = ctk.CTkFrame(self.content_area, fg_color="transparent")
         tab.grid_columnconfigure(0, weight=1)
-        tab.grid_rowconfigure(1, weight=1)
-
-        # Панель быстрых команд
-        quick_row = ctk.CTkFrame(tab, fg_color="transparent")
-        quick_row.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-
-        chips = [
-            ("ping", Palette.INFO),
-            ("banlist", Palette.WARNING),
-            ("idlist", Palette.ACCENT),
-            ("data", Palette.ACCENT_GLOW),
-            ("help", Palette.TEXT_DIM),
-            ("clear", Palette.ERROR),
-        ]
-        for cmd, color in chips:
-            ctk.CTkButton(
-                quick_row, text=cmd, width=80, height=30,
-                fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
-                text_color=color, corner_radius=8,
-                font=ctk.CTkFont(family="Consolas", size=12),
-                border_width=1, border_color=Palette.BORDER,
-                command=lambda c=cmd: self._run_command(c)
-            ).pack(side="left", padx=(0, 6))
-
-        # Терминал
-        term_container = ctk.CTkFrame(
-            tab, fg_color=Palette.BG_DARK, corner_radius=12,
-            border_width=1, border_color=Palette.BORDER
-        )
-        term_container.grid(row=1, column=0, sticky="nsew")
-        term_container.grid_columnconfigure(0, weight=1)
-        term_container.grid_rowconfigure(0, weight=1)
-
-        # Заголовок терминала (как в Windows Terminal)
-        title_bar = ctk.CTkFrame(term_container, fg_color=Palette.BG_PANEL,
-                                  corner_radius=0, height=36)
-        title_bar.grid(row=0, column=0, sticky="ew")
-        title_bar.grid_propagate(False)
-
-        ctk.CTkLabel(
-            title_bar, text="  ● ● ●", font=ctk.CTkFont(size=12),
-            text_color=Palette.TEXT_DIM2
-        ).pack(side="left", padx=8)
-
-        self.term_title = ctk.CTkLabel(
-            title_bar, text="RedSave Terminal",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            text_color=Palette.TEXT_DIM
-        )
-        self.term_title.pack(side="left", padx=8)
-
-        # Область вывода
-        self.terminal = ctk.CTkTextbox(
-            term_container,
-            font=ctk.CTkFont(family="Consolas", size=13),
-            fg_color=Palette.BG_DARK, border_width=0, corner_radius=0,
-            text_color=Palette.TEXT, wrap="word"
-        )
-        self.terminal.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
-
-        # Блокируем редактирование
-        for event in ("<Key>", "<<Paste>>", "<BackSpace>", "<Delete>", "<Control-v>", "<Control-V>"):
-            self.terminal.bind(event, lambda e: "break")
-
-        # Строка ввода (с префиксом как в терминале)
-        input_container = ctk.CTkFrame(term_container, fg_color=Palette.BG_INPUT,
-                                        corner_radius=0, height=48)
-        input_container.grid(row=2, column=0, sticky="ew")
-        input_container.grid_propagate(False)
-
-        ctk.CTkLabel(
-            input_container, text="❯",
-            font=ctk.CTkFont(family="Consolas", size=16, weight="bold"),
-            text_color=Palette.ACCENT
-        ).pack(side="left", padx=(14, 8))
-
-        self.cmd_entry = ctk.CTkEntry(
-            input_container,
-            placeholder_text="Введите команду... (help — справка, ↑↓ — история, Tab — автодополнение)",
-            font=ctk.CTkFont(family="Consolas", size=13),
-            fg_color="transparent", border_width=0,
-            text_color=Palette.TEXT,
-            placeholder_text_color=Palette.TEXT_DIM2
-        )
-        self.cmd_entry.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8)
-
-        ctk.CTkButton(
-            input_container, text="Enter ⏎", width=80, height=32,
-            fg_color=Palette.ACCENT, hover_color=Palette.ACCENT_HOVER,
-            text_color="#ffffff", corner_radius=8,
-            font=ctk.CTkFont(size=11, weight="bold"),
-            command=self._on_enter
-        ).pack(side="right", padx=(0, 12), pady=8)
-
-        # Обработчики клавиш
-        self.cmd_entry.bind("<Return>", lambda e: self._on_enter())
-        self.cmd_entry.bind("<Up>", self._history_up)
-        self.cmd_entry.bind("<Down>", self._history_down)
-        self.cmd_entry.bind("<Tab>", self._autocomplete)
-        self.cmd_entry.focus_set()
-
-        # Приветствие
-        self._term_write("RedSave Terminal v2.0", "header")
-        self._term_write(f"API: {API_URL}", "info")
-        self._term_write("Введите 'help' для списка команд", "info")
-        self._term_write("")
-
+        tab.grid_rowconfigure(0, weight=1)
+        self.terminal_widget = Terminal(tab, self)
+        self.terminal_widget.grid(row=0, column=0, sticky="nsew")
         return tab
 
-    # ================================================================
-    # ВКЛАДКА: БАНЫ
-    # ================================================================
     def _build_bans_tab(self):
         tab = ctk.CTkFrame(self.content_area, fg_color="transparent")
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(1, weight=1)
-
-        # Панель действий
         actions = ctk.CTkFrame(tab, fg_color="transparent")
         actions.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-
-        ctk.CTkButton(
-            actions, text="🔄  Обновить", width=120, height=36,
-            fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
-            text_color=Palette.TEXT, corner_radius=8,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            border_width=1, border_color=Palette.BORDER,
-            command=self._load_bans
-        ).pack(side="left")
-
-        # Список банов
-        self.bans_container = ctk.CTkScrollableFrame(
-            tab, fg_color=Palette.BG_CARD, corner_radius=12,
-            border_width=1, border_color=Palette.BORDER
-        )
+        ctk.CTkButton(actions, text="🔄  Обновить", width=120, height=36,
+                       fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
+                       text_color=Palette.TEXT, corner_radius=8,
+                       font=ctk.CTkFont(size=12, weight="bold"),
+                       border_width=1, border_color=Palette.BORDER,
+                       command=self._load_bans).pack(side="left")
+        self.bans_container = ctk.CTkScrollableFrame(tab, fg_color=Palette.BG_CARD,
+                                                      corner_radius=12,
+                                                      border_width=1, border_color=Palette.BORDER)
         self.bans_container.grid(row=1, column=0, sticky="nsew")
         self.bans_container.grid_columnconfigure(0, weight=1)
-
-        self._bans_placeholder = ctk.CTkLabel(
-            self.bans_container, text="Нажмите «Обновить», чтобы загрузить список",
-            font=ctk.CTkFont(size=13), text_color=Palette.TEXT_DIM2
-        )
-        self._bans_placeholder.pack(pady=60)
-
+        ctk.CTkLabel(self.bans_container, text="Нажмите «Обновить»",
+                      font=ctk.CTkFont(size=13), text_color=Palette.TEXT_DIM2).pack(pady=60)
         return tab
 
-    # ================================================================
-    # ВКЛАДКА: НАСТРОЙКИ
-    # ================================================================
     def _build_settings_tab(self):
         tab = ctk.CTkFrame(self.content_area, fg_color="transparent")
         tab.grid_columnconfigure(0, weight=1)
 
-        # Инфо о подключении
         info = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=12,
                              border_width=1, border_color=Palette.BORDER)
         info.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-
-        ctk.CTkLabel(
-            info, text="Подключение",
-            font=ctk.CTkFont(size=14, weight="bold"), text_color=Palette.TEXT
-        ).pack(anchor="w", padx=20, pady=(16, 12))
-
-        for label, value in [("API URL", API_URL), ("Token", APP_TOKEN)]:
-            row = ctk.CTkFrame(info, fg_color="transparent")
-            row.pack(fill="x", padx=20, pady=4)
-            ctk.CTkLabel(row, text=f"{label}:", width=100, anchor="w",
+        ctk.CTkLabel(info, text="Подключение", font=ctk.CTkFont(size=14, weight="bold"),
+                      text_color=Palette.TEXT).pack(anchor="w", padx=20, pady=(16, 12))
+        for lbl, val in [("API URL", API_URL), ("Token", APP_TOKEN)]:
+            r = ctk.CTkFrame(info, fg_color="transparent")
+            r.pack(fill="x", padx=20, pady=4)
+            ctk.CTkLabel(r, text=f"{lbl}:", width=100, anchor="w",
                           font=ctk.CTkFont(size=12), text_color=Palette.TEXT_DIM).pack(side="left")
-            ctk.CTkLabel(row, text=value, anchor="w",
+            ctk.CTkLabel(r, text=val, anchor="w",
                           font=ctk.CTkFont(family="Consolas", size=12),
                           text_color=Palette.TEXT).pack(side="left")
 
-        ctk.CTkFrame(info, fg_color="transparent", height=8).pack()
-
-        # Цвета терминала
         colors = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=12,
                                 border_width=1, border_color=Palette.BORDER)
         colors.grid(row=1, column=0, sticky="ew")
-
-        ctk.CTkLabel(
-            colors, text="Цвет терминала",
-            font=ctk.CTkFont(size=14, weight="bold"), text_color=Palette.TEXT
-        ).pack(anchor="w", padx=20, pady=(16, 12))
-
-        color_row = ctk.CTkFrame(colors, fg_color="transparent")
-        color_row.pack(fill="x", padx=20, pady=(0, 20))
-
+        ctk.CTkLabel(colors, text="Цвет терминала",
+                      font=ctk.CTkFont(size=14, weight="bold"),
+                      text_color=Palette.TEXT).pack(anchor="w", padx=20, pady=(16, 12))
+        row = ctk.CTkFrame(colors, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(0, 20))
         for num in range(1, 9):
             bg, fg, _, name = COLOR_THEMES[num]
-            btn = ctk.CTkButton(
-                color_row, text="", width=36, height=36,
-                fg_color=fg, hover_color=bg,
-                corner_radius=8, border_width=2,
-                border_color=Palette.BORDER,
-                command=lambda n=num: self._set_color_from_ui(n)
-            )
-            btn.pack(side="left", padx=4)
-            btn._color_num = num  # запоминаем для обновления активного
-
+            ctk.CTkButton(row, text="", width=36, height=36,
+                           fg_color=fg, hover_color=bg,
+                           corner_radius=8, border_width=2, border_color=Palette.BORDER,
+                           command=lambda n=num: self._apply_color(n)).pack(side="left", padx=4)
         return tab
 
-    # ================================================================
-    # ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК
-    # ================================================================
+    # --- утилиты ---
     def _switch_tab(self, key):
         if key == self.current_tab:
             return
         self.current_tab = key
         for k, btn in self.nav_buttons.items():
             btn._set_active(k == key)
-        self._show_tab(key)
-
-        titles = {
-            "dashboard": "Дашборд",
-            "terminal": "Терминал",
-            "bans": "Баны",
-            "settings": "Настройки",
-        }
-        self.header_title.configure(text=titles.get(key, ""))
-
-        if key == "bans":
-            self._load_bans()
-
-    def _show_tab(self, key):
         for k, tab in self.tabs.items():
             if k == key:
                 tab.grid(row=0, column=0, sticky="nsew")
             else:
                 tab.grid_forget()
+        titles = {"dashboard": "Дашборд", "terminal": "Терминал",
+                  "bans": "Баны", "settings": "Настройки"}
+        self.header_title.configure(text=titles.get(key, ""))
+        if key == "bans":
+            self._load_bans()
 
-    # ================================================================
-    # ЦВЕТА
-    # ================================================================
+    def _show_tab(self, key):
+        self._switch_tab(key)
+
     def _apply_color(self, num):
         if num not in COLOR_THEMES:
             return False
         self.current_color = num
+        self.config["color"] = num
+        save_config(self.config)
         bg, fg, dim, name = COLOR_THEMES[num]
         try:
-            self.terminal.configure(fg_color=bg, text_color=fg)
-            self.term_title.configure(text=f"RedSave Terminal — {name}")
+            if hasattr(self, "terminal_widget"):
+                self.terminal_widget.terminal.configure(fg_color=bg, text_color=fg)
+                self.terminal_widget.term_title.configure(text=f"RedSave Terminal — {name}")
+            if hasattr(self, "terminal"):
+                self.terminal.configure(fg_color=bg, text_color=fg)
         except Exception:
             pass
         return True
 
-    def _set_color_from_ui(self, num):
-        self._apply_color(num)
-        self._toast(f"Цвет изменён: {COLOR_THEMES[num][3]}", Palette.SUCCESS)
+    def _apply_font_size(self):
+        size = self.config.get("font_size", 13)
+        try:
+            if hasattr(self, "terminal_widget"):
+                self.terminal_widget.terminal.configure(
+                    font=ctk.CTkFont(family="Consolas", size=size))
+                self.terminal_widget.entry.configure(
+                    font=ctk.CTkFont(family="Consolas", size=size))
+        except Exception:
+            pass
 
-    # ================================================================
-    # ТЕРМИНАЛ — запись
-    # ================================================================
-    def _term_write(self, text, kind="normal"):
-        self.terminal.configure(state="normal")
-        tag = f"t_{kind}_{int(time.time()*1000)}_{id(text)}"
-        self.terminal.insert("end", text + "\n", tag)
+    def _send_to_terminal(self, cmd):
+        if hasattr(self, "terminal_widget"):
+            self._switch_tab("terminal")
+            self.terminal_widget.run(cmd)
 
-        tag_colors = {
-            "cmd": Palette.INFO,
-            "ok": Palette.SUCCESS,
-            "err": Palette.ERROR,
-            "warn": Palette.WARNING,
-            "info": Palette.TEXT_DIM2,
-            "header": Palette.ACCENT_GLOW,
-        }
-        if kind in tag_colors:
-            self.terminal.tag_config(tag, foreground=tag_colors[kind])
-        self.terminal.see("end")
-        self.terminal.configure(state="disabled")
-
-    # ================================================================
-    # ТЕРМИНАЛ — ввод
-    # ================================================================
-    def _on_enter(self):
-        cmd = self.cmd_entry.get().strip()
-        self.cmd_entry.delete(0, "end")
-        if not cmd:
-            return
-        if not self.cmd_history or self.cmd_history[-1] != cmd:
-            self.cmd_history.append(cmd)
-        self.history_index = len(self.cmd_history)
-        self._run_command(cmd)
-
-    def _history_up(self, event):
-        if not self.cmd_history:
-            return "break"
-        self.history_index = max(0, self.history_index - 1)
-        self.cmd_entry.delete(0, "end")
-        self.cmd_entry.insert(0, self.cmd_history[self.history_index])
-        return "break"
-
-    def _history_down(self, event):
-        if not self.cmd_history:
-            return "break"
-        self.history_index = min(len(self.cmd_history), self.history_index + 1)
-        self.cmd_entry.delete(0, "end")
-        if self.history_index < len(self.cmd_history):
-            self.cmd_entry.insert(0, self.cmd_history[self.history_index])
-        return "break"
-
-    def _autocomplete(self, event):
-        current = self.cmd_entry.get().strip().lower()
-        all_cmds = ["ping", "ban", "unban", "banlist", "checkban",
-                    "idlist", "ai", "data", "help", "color", "clear"]
-        matches = [c for c in all_cmds if c.startswith(current) and current]
-        if len(matches) == 1:
-            self.cmd_entry.delete(0, "end")
-            self.cmd_entry.insert(0, matches[0] + " ")
-        elif matches:
-            self._term_write("  ".join(matches), "info")
-        return "break"
-
-    # ================================================================
-    # ЗАПУСК КОМАНД
-    # ================================================================
-    def _run_command(self, raw):
-        low = raw.strip().lower()
-
-        if low == "clear":
-            self.terminal.configure(state="normal")
-            self.terminal.delete("1.0", "end")
-            self.terminal.configure(state="disabled")
-            return
-
-        if low == "color list":
-            self._term_write(f"❯ {raw}", "cmd")
-            for n, (_, _, _, name) in COLOR_THEMES.items():
-                marker = " ←" if n == self.current_color else ""
-                self._term_write(f"  {n} — {name}{marker}", "info")
-            self._term_write("")
-            return
-
-        if low.startswith("color"):
-            parts = low.split()
-            if len(parts) == 2 and parts[1].isdigit():
-                n = int(parts[1])
-                self._term_write(f"❯ {raw}", "cmd")
-                if self._apply_color(n):
-                    self._term_write(f"✅ Цвет изменён: {COLOR_THEMES[n][3]}", "ok")
-                else:
-                    self._term_write(f"❌ Неверный цвет. Доступно 1-8", "err")
-                self._term_write("")
-                return
-
-        # Всё остальное — на сервер
-        self._term_write(f"❯ {raw}", "cmd")
-
-        def task():
-            data = self.api.command(raw)
-            if "error" in data:
-                self.after(0, lambda: self._term_write(f"❌ {data['error']}", "err"))
-                self.after(0, lambda: self._mini_log(f"❌ {raw}: {data['error']}", "err"))
-            else:
-                result = data.get("result", "")
-                for line in result.split("\n"):
-                    self.after(0, lambda l=line: self._term_write(l, "normal"))
-                self.after(0, lambda: self._mini_log(f"✓ {raw}", "ok"))
-            self.after(0, lambda: self._term_write(""))
-        threading.Thread(target=task, daemon=True).start()
-
-    # ================================================================
-    # МИНИ-ЛОГ на дашборде
-    # ================================================================
-    def _mini_log(self, text, kind="normal"):
-        if not hasattr(self, "mini_log") or not self.mini_log.winfo_exists():
-            return
-        self.mini_log.configure(state="normal")
-        ts = time.strftime("%H:%M:%S")
-        line = f"[{ts}] {text}\n"
-        tag = f"m_{kind}_{int(time.time()*1000)}_{id(text)}"
-        self.mini_log.insert("end", line, tag)
-        tag_colors = {
-            "ok": Palette.SUCCESS,
-            "err": Palette.ERROR,
-            "info": Palette.TEXT_DIM2,
-        }
-        if kind in tag_colors:
-            self.mini_log.tag_config(tag, foreground=tag_colors[kind])
-        # храним только последние 200 строк
-        lines = int(self.mini_log.index("end-1c").split(".")[0])
-        if lines > 200:
-            self.mini_log.delete("1.0", f"{lines-200}.0")
-        self.mini_log.see("end")
-        self.mini_log.configure(state="disabled")
-
-    # ================================================================
-    # ЗАГРУЗКА БАНОВ
-    # ================================================================
-    def _load_bans(self):
-        def task():
-            data = self.api.command("banlist")
-            self.after(0, lambda: self._render_bans(data))
-        threading.Thread(target=task, daemon=True).start()
-
-    def _render_bans(self, data):
-        for w in self.bans_container.winfo_children():
-            w.destroy()
-
-        if "error" in data:
-            ctk.CTkLabel(self.bans_container, text=f"❌ {data['error']}",
-                          text_color=Palette.ERROR, font=ctk.CTkFont(size=13)
-                          ).pack(pady=60)
-            return
-
-        result = data.get("result", "")
-        if "пуст" in result.lower():
-            ctk.CTkLabel(self.bans_container, text="📋 Бан-лист пуст",
-                          text_color=Palette.TEXT_DIM2, font=ctk.CTkFont(size=13)
-                          ).pack(pady=60)
-            return
-
-        # Парсим строки
-        lines = [l.strip() for l in result.split("\n") if l.strip() and not l.startswith("📋")]
-
-        for line in lines:
-            row = ctk.CTkFrame(self.bans_container, fg_color=Palette.BG_PANEL, corner_radius=8,
-                                border_width=1, border_color=Palette.BORDER)
-            row.pack(fill="x", padx=4, pady=3)
-            ctk.CTkLabel(
-                row, text=line, anchor="w",
-                font=ctk.CTkFont(family="Consolas", size=12),
-                text_color=Palette.TEXT
-            ).pack(fill="x", padx=14, pady=10)
-
-    # ================================================================
-    # СТАТУС / ПИНГ
-    # ================================================================
+    # --- статус ---
     def _set_status(self, online, ping=None, paused=False):
         if paused:
             self.status_dot.set_color(Palette.WARNING)
@@ -862,7 +1079,6 @@ class App(ctk.CTk):
         else:
             self.status_dot.set_color(Palette.ERROR)
             self.status_label.configure(text="Офлайн", text_color=Palette.ERROR)
-
         self.ping_label.configure(text=f"{ping} ms" if ping else "— ms")
         if ping:
             self.card_ping.set_value(f"{ping}")
@@ -877,38 +1093,30 @@ class App(ctk.CTk):
                     else:
                         self.paused = data.get("paused", False)
                         self.after(0, self._update_pause_button)
-                        # карточки
-                        users = data.get("users_count", 0)
-                        bans = data.get("bans_count", 0)
-                        self.after(0, lambda u=users: self.card_users.set_value(str(u)))
-                        self.after(0, lambda b=bans: self.card_bans.set_value(str(b)))
+                        u = data.get("users_count", 0)
+                        b = data.get("bans_count", 0)
+                        self.after(0, lambda uu=u: self.card_users.set_value(str(uu)))
+                        self.after(0, lambda bb=b: self.card_bans.set_value(str(bb)))
                         p = self.api.ping()
                         if "error" not in p:
-                            ping_val = p.get("api_ping")
-                            paused_val = self.paused
-                            self.after(0, lambda pv=ping_val, pav=paused_val: self._set_status(True, pv, pav))
+                            pv = p.get("api_ping")
+                            pav = self.paused
+                            self.after(0, lambda vv=pv, pp=pav: self._set_status(True, vv, pp))
                 except Exception:
                     pass
                 time.sleep(10)
         threading.Thread(target=loop, daemon=True).start()
 
-    def _poll_stats(self):
-        # не используется отдельно, всё в _start_status_loop
-        pass
-
     def _update_pause_button(self):
         if self.paused:
-            self.pause_btn.configure(
-                text="▶  Возобновить",
-                fg_color=Palette.SUCCESS, hover_color="#16a34a",
-                text_color="#ffffff"
-            )
+            self.pause_btn.configure(text="▶  Возобновить",
+                                      fg_color=Palette.SUCCESS, hover_color="#16a34a",
+                                      text_color="#ffffff")
         else:
-            self.pause_btn.configure(
-                text="⏸  Пауза",
-                fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
-                text_color=Palette.TEXT
-            )
+            self.pause_btn.configure(text="⏸  Пауза",
+                                      fg_color=Palette.BG_CARD,
+                                      hover_color=Palette.BG_CARD_HOVER,
+                                      text_color=Palette.TEXT)
 
     def _toggle_pause(self):
         def task():
@@ -916,29 +1124,71 @@ class App(ctk.CTk):
                 data = self.api.resume()
                 if "error" not in data:
                     self.paused = False
-                    self.after(0, lambda: self._term_write("▶ Бот возобновлён", "ok"))
-                    self.after(0, lambda: self._mini_log("▶ Бот возобновлён", "ok"))
+                    self.after(0, lambda: self.toast("Бот возобновлён"))
             else:
                 data = self.api.pause()
                 if "error" not in data:
                     self.paused = True
-                    self.after(0, lambda: self._term_write("⏸ Бот поставлен на паузу", "warn"))
-                    self.after(0, lambda: self._mini_log("⏸ Пауза", "info"))
+                    self.after(0, lambda: self.toast("Бот на паузе", "warn"))
             self.after(0, self._update_pause_button)
         threading.Thread(target=task, daemon=True).start()
 
-    # ================================================================
-    # TOAST (простое уведомление в терминал)
-    # ================================================================
-    def _toast(self, text, color=Palette.SUCCESS):
-        self._term_write(f"• {text}", "ok")
+    # --- баны ---
+    def _load_bans(self):
+        def task():
+            data = self.api.command("banlist")
+            self.after(0, lambda: self._render_bans(data))
+        threading.Thread(target=task, daemon=True).start()
+
+    def _render_bans(self, data):
+        for w in self.bans_container.winfo_children():
+            w.destroy()
+        if "error" in data:
+            ctk.CTkLabel(self.bans_container, text=f"❌ {data['error']}",
+                          text_color=Palette.ERROR, font=ctk.CTkFont(size=13)).pack(pady=60)
+            return
+        result = data.get("result", "")
+        if "пуст" in result.lower():
+            ctk.CTkLabel(self.bans_container, text="📋 Бан-лист пуст",
+                          text_color=Palette.TEXT_DIM2,
+                          font=ctk.CTkFont(size=13)).pack(pady=60)
+            return
+        for line in [l.strip() for l in result.split("\n") if l.strip() and not l.startswith("📋")]:
+            row = ctk.CTkFrame(self.bans_container, fg_color=Palette.BG_PANEL,
+                                corner_radius=8, border_width=1, border_color=Palette.BORDER)
+            row.pack(fill="x", padx=4, pady=3)
+            ctk.CTkLabel(row, text=line, anchor="w",
+                          font=ctk.CTkFont(family="Consolas", size=12),
+                          text_color=Palette.TEXT).pack(fill="x", padx=14, pady=10)
+
+    # --- mini log / toast ---
+    def mini_log(self, text, kind="normal"):
+        if not hasattr(self, "mini_log") or not self.mini_log.winfo_exists():
+            return
+        self.mini_log.configure(state="normal")
+        ts = time.strftime("%H:%M:%S")
+        tag = f"m_{kind}_{time.time_ns()}"
+        self.mini_log.insert("end", f"[{ts}] {text}\n", tag)
+        colors = {"ok": Palette.SUCCESS, "err": Palette.ERROR, "info": Palette.TEXT_DIM2}
+        if kind in colors:
+            self.mini_log.tag_config(tag, foreground=colors[kind])
+        self.mini_log.see("end")
+        self.mini_log.configure(state="disabled")
+
+    def toast(self, text, kind="ok"):
+        if hasattr(self, "terminal_widget"):
+            self.terminal_widget.write(f"• {text}", kind)
 
     def on_close(self):
+        try:
+            self.config["window_geometry"] = self.geometry()
+            save_config(self.config)
+        except Exception:
+            pass
         self._status_running = False
         self.destroy()
 
 
 if __name__ == "__main__":
     app = App()
-    app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()
