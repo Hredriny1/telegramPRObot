@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from collections import OrderedDict
 
 import aiohttp
+from aiohttp import web as aiohttp_web
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, BusinessConnection, BusinessMessagesDeleted
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -38,6 +39,8 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = "openai/gpt-oss-120b"
 
+APP_TOKEN = os.getenv("APP_TOKEN", "change-me-secret-token").strip()
+
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
     raise SystemExit(1)
@@ -56,6 +59,7 @@ logger.info("🤖 Запуск Telegram бота")
 logger.info("OWNER_ID: %s", OWNER_ID)
 logger.info("SITE_API_URL: %s", SITE_API_URL if SITE_API_URL else "не задан")
 logger.info("GROQ_API_KEY: %s", "установлен" if GROQ_API_KEY else "❌ НЕ УСТАНОВЛЕН")
+logger.info("APP_TOKEN: %s", "установлен" if APP_TOKEN else "❌ НЕ УСТАНОВЛЕН")
 logger.info("=" * 70)
 
 # ============================================================
@@ -73,6 +77,9 @@ USER_DATABASE = {}
 BAN_CACHE = {}
 BAN_CACHE_TTL = 60
 TRACE_BUFFER = {}
+
+# Глобальный флаг паузы (для API приложения)
+BOT_PAUSED = False
 
 BAD_WORDS = [
     "бля", "блядь", "блять", "сука", "хуй", "хуя", "пизда", "ебал", "ебать",
@@ -364,7 +371,7 @@ async def command_poll_task(bot: Bot):
                 await api_set_command_result(result, status="ok")
         except Exception as e:
             logger.error("❌ command_poll: %s", e)
-        await asyncio.sleep(5)
+        await asyncio.sleep(30)
 
 async def execute_site_command(cmd: str, bot: Bot) -> str:
     cmd = cmd.strip()
@@ -922,10 +929,134 @@ async def startup_greeting(bot: Bot):
         logger.error("❌ greeting: %s", e)
 
 # ============================================================
+# HTTP API ДЛЯ ПРИЛОЖЕНИЯ
+# ============================================================
+
+# Глобальная ссылка на бота (заполняется в main)
+bot: Bot = None
+
+@aiohttp_web.middleware
+async def api_auth_middleware(request, handler):
+    if request.path.startswith("/api/"):
+        token = request.headers.get("X-App-Token")
+        if token != APP_TOKEN:
+            return aiohttp_web.json_response({"error": "unauthorized"}, status=401)
+    return await handler(request)
+
+async def api_ping_handler(request):
+    start = time.time()
+    try:
+        await bot.get_me()
+        api_ping_ms = int((time.time() - start) * 1000)
+    except Exception:
+        api_ping_ms = -1
+
+    tcp_ping = -1
+    try:
+        start = time.time()
+        reader, writer = await asyncio.open_connection("api.telegram.org", 443)
+        tcp_ping = int((time.time() - start) * 1000)
+        writer.close()
+        await writer.wait_closed()
+    except Exception:
+        pass
+
+    return aiohttp_web.json_response({
+        "api_ping": api_ping_ms,
+        "tcp_ping": tcp_ping,
+        "status": "online" if api_ping_ms >= 0 else "offline",
+        "paused": BOT_PAUSED,
+    })
+
+async def api_status_handler(request):
+    return aiohttp_web.json_response({
+        "online": True,
+        "paused": BOT_PAUSED,
+        "users_count": len(USER_DATABASE),
+        "bans_count": len(BAN_CACHE),
+        "uptime": int(time.time()),
+    })
+
+async def api_pause_handler(request):
+    global BOT_PAUSED
+    BOT_PAUSED = True
+    logger.info("⏸ Бот поставлен на паузу через API")
+    return aiohttp_web.json_response({"ok": True, "paused": True})
+
+async def api_resume_handler(request):
+    global BOT_PAUSED
+    BOT_PAUSED = False
+    logger.info("▶ Бот возобновлён через API")
+    return aiohttp_web.json_response({"ok": True, "paused": False})
+
+async def api_command_handler(request):
+    if BOT_PAUSED:
+        return aiohttp_web.json_response(
+            {"error": "Бот на паузе. Нажмите «Возобновить»."}, status=423
+        )
+    try:
+        data = await request.json()
+        cmd = data.get("command", "").strip()
+        if not cmd:
+            return aiohttp_web.json_response({"error": "Пустая команда"}, status=400)
+        result = await execute_site_command(cmd, bot)
+        return aiohttp_web.json_response({"result": result})
+    except Exception as e:
+        return aiohttp_web.json_response({"error": str(e)}, status=500)
+
+async def api_banlist_handler(request):
+    bans = await api_list_bans()
+    return aiohttp_web.json_response({"bans": bans})
+
+async def api_ban_handler(request):
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        time_str = data.get("time", "forever")
+        reason = data.get("reason", "не указана")
+        if not user_id:
+            return aiohttp_web.json_response({"error": "Нет user_id"}, status=400)
+        ok = await api_add_ban(user_id, str(user_id), time_str, reason)
+        return aiohttp_web.json_response({"ok": ok})
+    except Exception as e:
+        return aiohttp_web.json_response({"error": str(e)}, status=500)
+
+async def api_unban_handler(request):
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        if not user_id:
+            return aiohttp_web.json_response({"error": "Нет user_id"}, status=400)
+        ok = await api_remove_ban(user_id, str(user_id))
+        return aiohttp_web.json_response({"ok": ok})
+    except Exception as e:
+        return aiohttp_web.json_response({"error": str(e)}, status=500)
+
+async def start_http_api():
+    app = aiohttp_web.Application(middlewares=[api_auth_middleware])
+    app.router.add_post("/api/ping", api_ping_handler)
+    app.router.add_post("/api/status", api_status_handler)
+    app.router.add_post("/api/command", api_command_handler)
+    app.router.add_post("/api/pause", api_pause_handler)
+    app.router.add_post("/api/resume", api_resume_handler)
+    app.router.add_post("/api/banlist", api_banlist_handler)
+    app.router.add_post("/api/ban", api_ban_handler)
+    app.router.add_post("/api/unban", api_unban_handler)
+
+    # Порт берём из WEB_PORT (RelaxDev), либо PORT, либо 8080
+    port = int(os.environ.get("WEB_PORT", os.environ.get("PORT", 8080)))
+    runner = aiohttp_web.AppRunner(app)
+    await runner.setup()
+    site = aiohttp_web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"🌐 HTTP API запущен на 0.0.0.0:{port}")
+
+# ============================================================
 # ЗАПУСК
 # ============================================================
 
 async def main():
+    global bot
     session = AiohttpSession(api=TelegramAPIServer.from_base(TELEGRAM_PROXY_URL), limit=50)
     bot = Bot(token=BOT_TOKEN, session=session, request_timeout=15)
     dp = Dispatcher()
@@ -953,6 +1084,7 @@ async def main():
 
     asyncio.create_task(heartbeat_task(bot))
     asyncio.create_task(command_poll_task(bot))
+    asyncio.create_task(start_http_api())
 
     logger.info("🚀 Запуск polling...")
     try:
