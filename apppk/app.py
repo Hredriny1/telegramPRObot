@@ -16,7 +16,7 @@ from datetime import datetime
 # ============================================================
 API_URL = "https://telegramprobot.relaxdev.ru/webhook"
 APP_TOKEN = "871410danil"
-APP_VERSION = "4.0.0-ultra"
+APP_VERSION = "4.0.1-ultra"
 
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".redsave_config.json")
 HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".redsave_history.json")
@@ -69,24 +69,19 @@ class Palette:
     CYAN = "#06b6d4"
 
 # ============================================================
-# NETWORK MONITOR (глобальный перехватчик)
+# NETWORK MONITOR
 # ============================================================
 class NetworkMonitor:
-    """Хранит все HTTP-запросы приложения."""
-    def __init__(self, limit=200):
+    def __init__(self, limit=300):
         self.requests = []
         self.limit = limit
         self.lock = threading.Lock()
 
     def log(self, method, url, status, duration_ms, size=0, error=None):
         entry = {
-            "ts": time.time(),
-            "method": method,
-            "url": url,
-            "status": status,
-            "duration_ms": duration_ms,
-            "size": size,
-            "error": error,
+            "ts": time.time(), "method": method, "url": url,
+            "status": status, "duration_ms": duration_ms,
+            "size": size, "error": error,
         }
         with self.lock:
             self.requests.append(entry)
@@ -116,41 +111,50 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 defaults.update(json.load(f))
-        except Exception: pass
+        except Exception:
+            pass
     return defaults
 
 def save_config(cfg):
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
-    except Exception: pass
+    except Exception:
+        pass
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception: pass
+        except Exception:
+            pass
     return []
 
 def save_history(history):
     try:
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(history[-200:], f, ensure_ascii=False, indent=2)
-    except Exception: pass
+    except Exception:
+        pass
 
 def play_sound(kind="ok", enabled=True):
-    if not enabled: return
+    if not enabled:
+        return
     try:
         if sys.platform == "win32":
             import winsound
-            if kind == "ok": winsound.MessageBeep(winsound.MB_ICONASTERISK)
-            elif kind == "err": winsound.MessageBeep(winsound.MB_ICONHAND)
-            elif kind == "warn": winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-    except Exception: pass
+            if kind == "ok":
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            elif kind == "err":
+                winsound.MessageBeep(winsound.MB_ICONHAND)
+            elif kind == "warn":
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+    except Exception:
+        pass
 
 # ============================================================
-# API КЛИЕНТ (с логированием в NetworkMonitor)
+# API КЛИЕНТ
 # ============================================================
 class BotAPI:
     def __init__(self, base_url, token):
@@ -173,10 +177,14 @@ class BotAPI:
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code
             size = len(e.response.content) if e.response is not None else 0
-            if status == 401: result = {"error": "Неверный токен"}
-            elif status == 423: result = {"error": "Бот на паузе"}
-            elif status == 404: result = {"error": "RelaxDev не проксирует путь"}
-            else: result = {"error": f"HTTP {status}"}
+            if status == 401:
+                result = {"error": "Неверный токен"}
+            elif status == 423:
+                result = {"error": "Бот на паузе"}
+            elif status == 404:
+                result = {"error": "RelaxDev не проксирует путь"}
+            else:
+                result = {"error": f"HTTP {status}"}
             error = result["error"]
         except requests.exceptions.ConnectionError:
             result = {"error": "Нет соединения"}
@@ -191,11 +199,20 @@ class BotAPI:
         NET_MONITOR.log("POST", url, status, duration, size, error)
         return result
 
-    def ping(self): return self._post("ping")
-    def status(self): return self._post("status")
-    def command(self, cmd): return self._post("command", {"command": cmd})
-    def pause(self): return self._post("pause")
-    def resume(self): return self._post("resume")
+    def ping(self):
+        return self._post("ping")
+
+    def status(self):
+        return self._post("status")
+
+    def command(self, cmd):
+        return self._post("command", {"command": cmd})
+
+    def pause(self):
+        return self._post("pause")
+
+    def resume(self):
+        return self._post("resume")
 
 # ============================================================
 # АНИМИРОВАННАЯ ТОЧКА
@@ -211,23 +228,29 @@ class AnimatedDot(tk.Canvas):
 
     def set_color(self, color):
         self.color = color
-        try: self.itemconfig(self.dot, fill=color)
-        except Exception: pass
+        try:
+            self.itemconfig(self.dot, fill=color)
+        except Exception:
+            pass
 
     def _animate(self):
-        if not self.winfo_exists(): return
+        if not self.winfo_exists():
+            return
         try:
             self.phase = (self.phase + 1) % 40
             scale = 1 + 0.15 * math.sin(self.phase / 40 * 2 * math.pi)
             cx, cy = self.size / 2, self.size / 2
             r = (self.size - 4) / 2 * scale
             self.coords(self.dot, cx - r, cy - r, cx + r, cy + r)
-        except Exception: pass
-        try: self.after(50, self._animate)
-        except Exception: pass
+        except Exception:
+            pass
+        try:
+            self.after(50, self._animate)
+        except Exception:
+            pass
 
 # ============================================================
-# ЖИВЫЕ ТОЧКИ
+# TRAFFIC LIGHTS
 # ============================================================
 class TrafficLights(tk.Canvas):
     def __init__(self, parent, size=(54, 18), bg=Palette.BG_PANEL):
@@ -253,22 +276,26 @@ class TrafficLights(tk.Canvas):
             self.itemconfig(self.c1, fill=c1)
             self.itemconfig(self.c2, fill=c2)
             self.itemconfig(self.c3, fill=c3)
-        except Exception: pass
+        except Exception:
+            pass
 
     def _animate(self):
-        if not self.winfo_exists(): return
+        if not self.winfo_exists():
+            return
         try:
             self.phase += 1
             if self.state == "online":
-                # пульсация зелёной
                 w = 1 + int(0.5 + 0.5 * math.sin(self.phase / 20))
                 self.itemconfig(self.c1, outline="#22c55e", width=w)
-        except Exception: pass
-        try: self.after(60, self._animate)
-        except Exception: pass
+        except Exception:
+            pass
+        try:
+            self.after(60, self._animate)
+        except Exception:
+            pass
 
 # ============================================================
-# МИКРО-ГРАФИК RTT
+# RTT GRAPH
 # ============================================================
 class RTTGraph(tk.Canvas):
     def __init__(self, parent, width=180, height=36, bg=Palette.BG_CARD):
@@ -280,7 +307,8 @@ class RTTGraph(tk.Canvas):
         self._draw()
 
     def push(self, value):
-        if value is None or value < 0: value = 0
+        if value is None or value < 0:
+            value = 0
         self.values.pop(0)
         self.values.append(value)
         self.max_v = max(200, max(self.values) + 20)
@@ -308,10 +336,11 @@ class RTTGraph(tk.Canvas):
             color = Palette.SUCCESS if cur < 100 else (Palette.WARNING if cur < 500 else Palette.ERROR)
             self.create_text(w - 4, 8, text=f"{cur}ms", anchor="e",
                              fill=color, font=("Arial", 9, "bold"))
-        except Exception: pass
+        except Exception:
+            pass
 
 # ============================================================
-# АНИМИРОВАННЫЙ ГРАДИЕНТ-ФОН (для главного окна)
+# GRADIENT BACKGROUND
 # ============================================================
 class GradientBackground(tk.Canvas):
     def __init__(self, parent, **kwargs):
@@ -335,22 +364,22 @@ class GradientBackground(tk.Canvas):
                     "r": random.uniform(0.8, 2.2),
                     "c": random.choice(["#6366f1", "#8b5cf6", "#a78bfa", "#06b6d4"]),
                 })
-        except Exception: pass
+        except Exception:
+            pass
 
     def _animate(self):
-        if not self.winfo_exists(): return
+        if not self.winfo_exists():
+            return
         if not self.enabled:
-            self.after(200, self._animate); return
+            self.after(200, self._animate)
+            return
         try:
             self.delete("all")
             w = self.winfo_width() or 1200
             h = self.winfo_height() or 760
-            # градиент (несколько горизонтальных полос с плавным переходом)
             self.phase = (self.phase + 0.5) % 360
             steps = 20
             for i in range(steps):
-                t = i / steps
-                # два цвета, медленно переливающиеся
                 r1, g1, b1 = 10, 10, 20
                 r2, g2, b2 = 20, 18, 40
                 wave = 0.5 + 0.5 * math.sin((self.phase + i * 8) * math.pi / 180)
@@ -360,11 +389,11 @@ class GradientBackground(tk.Canvas):
                 color = f"#{r:02x}{g:02x}{b:02x}"
                 self.create_rectangle(0, h * i / steps, w, h * (i + 1) / steps,
                                       fill=color, outline="")
-            # частицы
             if not self.particles:
                 self.start_particles(40)
             for p in self.particles:
-                p["x"] += p["vx"]; p["y"] += p["vy"]
+                p["x"] += p["vx"]
+                p["y"] += p["vy"]
                 if p["x"] < 0: p["x"] = w
                 if p["x"] > w: p["x"] = 0
                 if p["y"] < 0: p["y"] = h
@@ -372,11 +401,12 @@ class GradientBackground(tk.Canvas):
                 self.create_oval(p["x"] - p["r"], p["y"] - p["r"],
                                  p["x"] + p["r"], p["y"] + p["r"],
                                  fill=p["c"], outline="")
-        except Exception: pass
+        except Exception:
+            pass
         self.after(80, self._animate)
 
 # ============================================================
-# КАРТОЧКА (с neon glow при hover)
+# STAT CARD
 # ============================================================
 class StatCard(ctk.CTkFrame):
     def __init__(self, parent, label, value="—", accent=Palette.ACCENT):
@@ -394,7 +424,6 @@ class StatCard(ctk.CTkFrame):
             inner, text=label.upper(), font=ctk.CTkFont(size=10, weight="bold"),
             text_color=Palette.TEXT_DIM2
         ).pack(anchor="w", pady=(2, 0))
-
         self.bind("<Enter>", self._hover_in)
         self.bind("<Leave>", self._hover_out)
 
@@ -402,15 +431,19 @@ class StatCard(ctk.CTkFrame):
         self.value_label.configure(text=value)
 
     def _hover_in(self, e):
-        try: self.configure(border_color=self.accent)
-        except Exception: pass
+        try:
+            self.configure(border_color=self.accent)
+        except Exception:
+            pass
 
     def _hover_out(self, e):
-        try: self.configure(border_color=Palette.BORDER)
-        except Exception: pass
+        try:
+            self.configure(border_color=Palette.BORDER)
+        except Exception:
+            pass
 
 # ============================================================
-# КРУГОВАЯ ДИАГРАММА СТАТУСА
+# STATUS RING
 # ============================================================
 class StatusRing(tk.Canvas):
     def __init__(self, parent, size=80, bg=Palette.BG_CARD):
@@ -424,39 +457,35 @@ class StatusRing(tk.Canvas):
         self.state = state
 
     def _animate(self):
-        if not self.winfo_exists(): return
+        if not self.winfo_exists():
+            return
         try:
             self.delete("all")
             cx = cy = self.size / 2
             r = self.size / 2 - 6
             colors = {
-                "online": "#22c55e",
-                "paused": "#f59e0b",
-                "offline": "#ef4444",
-                "unknown": "#55556a",
+                "online": "#22c55e", "paused": "#f59e0b",
+                "offline": "#ef4444", "unknown": "#55556a",
             }
             color = colors.get(self.state, "#55556a")
-
-            # внешнее кольцо (пульсация)
             self.pulse = (self.pulse + 1) % 60
             ring_r = r + 2 * math.sin(self.pulse / 60 * 2 * math.pi)
             self.create_oval(cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r,
                              outline=color, width=2)
-
-            # основное кольцо
             self.create_oval(cx - r, cy - r, cx + r, cy + r,
                              outline=color, width=3, fill="")
-
-            # центральная точка
             r2 = 6
             self.create_oval(cx - r2, cy - r2, cx + r2, cy + r2,
                              fill=color, outline="")
-        except Exception: pass
-        try: self.after(50, self._animate)
-        except Exception: pass
+        except Exception:
+            pass
+        try:
+            self.after(50, self._animate)
+        except Exception:
+            pass
 
 # ============================================================
-# КНОПКА САЙДБАРА
+# SIDEBAR BUTTON
 # ============================================================
 class SidebarButton(ctk.CTkFrame):
     def __init__(self, parent, text, icon, command=None, active=False):
@@ -494,14 +523,17 @@ class SidebarButton(ctk.CTkFrame):
     def _on_enter(self, e):
         if not self.active:
             self.configure(fg_color=Palette.BG_CARD)
+
     def _on_leave(self, e):
         if not self.active:
             self.configure(fg_color="transparent")
+
     def _on_click(self, e):
-        if self.command: self.command()
+        if self.command:
+            self.command()
 
 # ============================================================
-# ТЕРМИНАЛ
+# TERMINAL
 # ============================================================
 class Terminal(ctk.CTkFrame):
     def __init__(self, parent, app, **kwargs):
@@ -618,33 +650,43 @@ class Terminal(ctk.CTkFrame):
 
     def _start_prompt_pulse(self):
         def pulse(i=0):
-            if not self.prompt.winfo_exists(): return
+            if not self.prompt.winfo_exists():
+                return
             try:
                 colors = [Palette.ACCENT, Palette.ACCENT_GLOW, Palette.CYAN, Palette.ACCENT]
                 self.prompt.configure(text_color=colors[i % len(colors)])
-            except Exception: pass
-            try: self.after(350, lambda: pulse(i + 1))
-            except Exception: pass
+            except Exception:
+                pass
+            try:
+                self.after(350, lambda: pulse(i + 1))
+            except Exception:
+                pass
         pulse()
 
     def _type_next(self):
-        if not self.typing_queue: return
+        if not self.typing_queue:
+            return
         text, kind = self.typing_queue.pop(0)
-        if text: self._animate_typing(text, kind)
+        if text:
+            self._animate_typing(text, kind)
         else:
             self.write("", kind)
             self.after(150, self._type_next)
 
     def _animate_typing(self, full_text, kind, idx=0):
         if idx > len(full_text):
-            self.after(150, self._type_next); return
+            self.after(150, self._type_next)
+            return
         partial = full_text[:idx]
         self.terminal.configure(state="normal")
-        try: self.terminal.delete("end-2l", "end-1l")
-        except Exception: pass
+        try:
+            self.terminal.delete("end-2l", "end-1l")
+        except Exception:
+            pass
         self.terminal.insert("end", partial + "\n", f"tag_{kind}")
         self._apply_tag(f"tag_{kind}", kind)
-        if self.sticky_scroll: self.terminal.see("end")
+        if self.sticky_scroll:
+            self.terminal.see("end")
         self.terminal.configure(state="disabled")
         self.after(15, lambda: self._animate_typing(full_text, kind, idx + 1))
 
@@ -664,13 +706,15 @@ class Terminal(ctk.CTkFrame):
                 self.terminal.configure(state="normal")
                 self.terminal.delete("1.0", f"{line_count - 10000}.0")
                 self.terminal.configure(state="disabled")
-        except Exception: pass
+        except Exception:
+            pass
 
         self.terminal.configure(state="normal")
         tag = f"tag_{kind}"
         self.terminal.insert("end", text + "\n", tag)
         self._apply_tag(tag, kind)
-        if self.sticky_scroll: self.terminal.see("end")
+        if self.sticky_scroll:
+            self.terminal.see("end")
         self.terminal.configure(state="disabled")
         self._update_live_indicator()
 
@@ -682,14 +726,16 @@ class Terminal(ctk.CTkFrame):
                 self.live_btn.configure(text="")
             elif not live and not self.live_btn.cget("text"):
                 self.live_btn.configure(text="⬇ Live OFF")
-        except Exception: pass
+        except Exception:
+            pass
 
     def _jump_to_end(self):
         self.sticky_scroll = True
         try:
             self.terminal.see("end")
             self.live_btn.configure(text="")
-        except Exception: pass
+        except Exception:
+            pass
 
     def _clear_terminal(self):
         self.terminal.configure(state="normal")
@@ -702,12 +748,15 @@ class Terminal(ctk.CTkFrame):
             if text:
                 self.clipboard_clear()
                 self.clipboard_append(text)
-        except Exception: pass
+        except Exception:
+            pass
         return "break"
 
     def _paste(self, event=None):
-        try: self.entry.insert("end", self.clipboard_get())
-        except Exception: pass
+        try:
+            self.entry.insert("end", self.clipboard_get())
+        except Exception:
+            pass
         return "break"
 
     def _on_scroll(self, event):
@@ -728,26 +777,31 @@ class Terminal(ctk.CTkFrame):
                 self.clipboard_clear()
                 self.clipboard_append(m.group(0))
                 self.app.toast(f"Скопировано: {m.group(0)}")
-        except Exception: pass
+        except Exception:
+            pass
 
     def on_enter(self):
         cmd = self.entry.get().strip()
         self.entry.delete(0, "end")
-        if not cmd: return        if not self.history or self.history[-1] != cmd:
+        if not cmd:
+            return
+        if not self.history or self.history[-1] != cmd:
             self.history.append(cmd)
             save_history(self.history)
         self.history_index = len(self.history)
         self.run(cmd)
 
     def history_up(self, event=None):
-        if not self.history: return "break"
+        if not self.history:
+            return "break"
         self.history_index = max(0, self.history_index - 1)
         self.entry.delete(0, "end")
         self.entry.insert(0, self.history[self.history_index])
         return "break"
 
     def history_down(self, event=None):
-        if not self.history: return "break"
+        if not self.history:
+            return "break"
         self.history_index = min(len(self.history), self.history_index + 1)
         self.entry.delete(0, "end")
         if self.history_index < len(self.history):
@@ -779,7 +833,8 @@ class Terminal(ctk.CTkFrame):
             raw = cmd + (" " + arg if arg else "")
 
         if cmd == "clear":
-            self._clear_terminal(); return
+            self._clear_terminal()
+            return
 
         if cmd == "help":
             self.write(f"❯ {raw}", "cmd")
@@ -813,7 +868,8 @@ class Terminal(ctk.CTkFrame):
                 for n, (_, _, _, name) in COLOR_THEMES.items():
                     marker = " ←" if n == self.app.current_color else ""
                     self.write(f"  {n} — {name}{marker}", "info")
-                self.write(""); return
+                self.write("")
+                return
             try:
                 n = int(arg)
                 self.write(f"❯ {raw}", "cmd")
@@ -876,13 +932,15 @@ class Terminal(ctk.CTkFrame):
         if cmd == "mute":
             self.app.config_data["sound"] = False
             save_config(self.app.config_data)
-            self.write("🔇 Звук выключен", "ok"); return
+            self.write("🔇 Звук выключен", "ok")
+            return
 
         if cmd == "unmute":
             self.app.config_data["sound"] = True
             save_config(self.app.config_data)
             self.write("🔊 Звук включён", "ok")
-            play_sound("ok", True); return
+            play_sound("ok", True)
+            return
 
         if cmd == "lang":
             if arg in ("ru", "en"):
@@ -894,13 +952,15 @@ class Terminal(ctk.CTkFrame):
             return
 
         if cmd == "fortune":
-            self.write(random.choice(FORTUNES), "info"); return
+            self.write(random.choice(FORTUNES), "info")
+            return
 
         if cmd == "uptime":
             up = int(time.time() - self.app.start_time)
             h, rem = divmod(up, 3600)
             m, s = divmod(rem, 60)
-            self.write(f"⏱ {h}ч {m}м {s}с", "info"); return
+            self.write(f"⏱ {h}ч {m}м {s}с", "info")
+            return
 
         if cmd == "mem":
             try:
@@ -932,7 +992,8 @@ class Terminal(ctk.CTkFrame):
             save_config(self.app.config_data)
             self.app._apply_color(5)
             self.app._apply_font_size()
-            self.write("✅ Настройки сброшены", "ok"); return
+            self.write("✅ Настройки сброшены", "ok")
+            return
 
         self.write(f"❯ {raw}", "cmd")
         self._progress_show()
@@ -958,7 +1019,8 @@ class Terminal(ctk.CTkFrame):
         self.terminal.configure(state="normal")
         parts = re.split(r"(\b\d{5,}\b|\d{2}\.\d{2}\.\d{4})", line)
         for part in parts:
-            if not part: continue
+            if not part:
+                continue
             if re.fullmatch(r"\d{5,}", part):
                 tag = f"id_{time.time_ns()}"
                 self.terminal.insert("end", part, tag)
@@ -970,7 +1032,8 @@ class Terminal(ctk.CTkFrame):
             else:
                 self.terminal.insert("end", part, "normal")
         self.terminal.insert("end", "\n")
-        if self.sticky_scroll: self.terminal.see("end")
+        if self.sticky_scroll:
+            self.terminal.see("end")
         self.terminal.configure(state="disabled")
         self._update_live_indicator()
 
@@ -978,16 +1041,18 @@ class Terminal(ctk.CTkFrame):
         try:
             self.progress.grid()
             self.progress.start()
-        except Exception: pass
+        except Exception:
+            pass
 
     def _progress_hide(self):
         try:
             self.progress.stop()
             self.progress.grid_remove()
-        except Exception: pass
+        except Exception:
+            pass
 
 # ============================================================
-# ГЛАВНОЕ ОКНО
+# APP
 # ============================================================
 class App(ctk.CTk):
     def __init__(self):
@@ -999,7 +1064,6 @@ class App(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        # Запускаем анимированный фон (позади всего)
         self.bg_canvas = tk.Canvas(self, bg=Palette.BG_DARK, highlightthickness=0)
         self.bg_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.bg_animator = GradientBackground(self.bg_canvas)
@@ -1020,7 +1084,6 @@ class App(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _build_ui(self):
-        # Контейнер поверх фона
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.main_container.grid_columnconfigure(1, weight=1)
@@ -1064,7 +1127,6 @@ class App(ctk.CTk):
         spacer = ctk.CTkFrame(sidebar, fg_color="transparent")
         spacer.pack(fill="both", expand=True)
 
-        # Статус-карточка внизу
         status_frame = ctk.CTkFrame(sidebar, fg_color=Palette.BG_CARD, corner_radius=12)
         status_frame.pack(fill="x", padx=12, pady=12)
         inner = ctk.CTkFrame(status_frame, fg_color="transparent")
@@ -1276,7 +1338,6 @@ class App(ctk.CTk):
                            command=lambda n=num: self._apply_color(n)).pack(side="left", padx=5)
         return tab
 
-    # --- утилиты ---
     def _switch_tab(self, key):
         if key == self.current_tab:
             return
@@ -1284,19 +1345,25 @@ class App(ctk.CTk):
         for k, btn in self.nav_buttons.items():
             btn._set_active(k == key)
         for k, tab in self.tabs.items():
-            if k == key: tab.grid(row=0, column=0, sticky="nsew")
-            else: tab.grid_forget()
+            if k == key:
+                tab.grid(row=0, column=0, sticky="nsew")
+            else:
+                tab.grid_forget()
         titles = {"dashboard": "Дашборд", "terminal": "Терминал", "bans": "Баны",
                   "network": "Network Monitor", "settings": "Настройки"}
         self.header_title.configure(text=titles.get(key, ""))
-        if key == "bans": self._load_bans()
-        if key == "network": self._render_network()
+        if key == "bans":
+            self._load_bans()
+        if key == "network":
+            self._render_network()
 
     def _show_tab(self, key):
         self.current_tab = key
         for k, tab in self.tabs.items():
-            if k == key: tab.grid(row=0, column=0, sticky="nsew")
-            else: tab.grid_forget()
+            if k == key:
+                tab.grid(row=0, column=0, sticky="nsew")
+            else:
+                tab.grid_forget()
         titles = {"dashboard": "Дашборд", "terminal": "Терминал", "bans": "Баны",
                   "network": "Network Monitor", "settings": "Настройки"}
         self.header_title.configure(text=titles.get(key, ""))
@@ -1312,7 +1379,8 @@ class App(ctk.CTk):
             if hasattr(self, "terminal_widget"):
                 self.terminal_widget.terminal.configure(fg_color=bg, text_color=fg)
                 self.terminal_widget.term_title.configure(text=f"RedSave Terminal — {name}")
-        except Exception: pass
+        except Exception:
+            pass
         return True
 
     def _apply_font_size(self):
@@ -1323,7 +1391,8 @@ class App(ctk.CTk):
                     font=ctk.CTkFont(family="Consolas", size=size))
                 self.terminal_widget.entry.configure(
                     font=ctk.CTkFont(family="Consolas", size=size))
-        except Exception: pass
+        except Exception:
+            pass
 
     def _send_to_terminal(self, cmd):
         if hasattr(self, "terminal_widget"):
@@ -1332,12 +1401,14 @@ class App(ctk.CTk):
                 btn._set_active(k == "terminal")
             self.terminal_widget.run(cmd)
 
-    # --- статус ---
     def _set_status(self, online, ping=None, paused=False):
         if hasattr(self, "terminal_widget") and hasattr(self.terminal_widget, "traffic"):
-            if paused: self.terminal_widget.traffic.set_state("paused")
-            elif online: self.terminal_widget.traffic.set_state("online")
-            else: self.terminal_widget.traffic.set_state("offline")
+            if paused:
+                self.terminal_widget.traffic.set_state("paused")
+            elif online:
+                self.terminal_widget.traffic.set_state("online")
+            else:
+                self.terminal_widget.traffic.set_state("offline")
 
         if paused:
             self.status_ring.set_state("paused")
@@ -1374,18 +1445,19 @@ class App(ctk.CTk):
                             pv = p.get("api_ping")
                             pav = self.paused
                             self.after(0, lambda vv=pv, pp=pav: self._set_status(True, vv, pp))
-                except Exception: pass
+                except Exception:
+                    pass
                 time.sleep(10)
         threading.Thread(target=loop, daemon=True).start()
 
     def _start_network_refresh(self):
-        """Автообновление Network-вкладки каждые 3 секунды, если она открыта."""
         def loop():
             while self._status_running:
                 try:
                     if self.current_tab == "network":
                         self.after(0, self._render_network)
-                except Exception: pass
+                except Exception:
+                    pass
                 time.sleep(3)
         threading.Thread(target=loop, daemon=True).start()
 
@@ -1415,7 +1487,6 @@ class App(ctk.CTk):
             self.after(0, self._update_pause_button)
         threading.Thread(target=task, daemon=True).start()
 
-    # --- баны ---
     def _load_bans(self):
         def task():
             data = self.api.command("banlist")
@@ -1443,7 +1514,6 @@ class App(ctk.CTk):
                           font=ctk.CTkFont(family="Consolas", size=12),
                           text_color=Palette.TEXT).pack(fill="x", padx=16, pady=10)
 
-    # --- network ---
     def _render_network(self):
         for w in self.net_container.winfo_children():
             w.destroy()
@@ -1455,13 +1525,11 @@ class App(ctk.CTk):
             self.net_stats.configure(text="")
             return
 
-        # Статистика
         total = len(entries)
         errs = sum(1 for e in entries if e.get("error") or (e.get("status") or 0) >= 400)
         avg = sum(e.get("duration_ms", 0) for e in entries) / max(1, total)
         self.net_stats.configure(text=f"Всего: {total}  |  Ошибок: {errs}  |  Среднее: {int(avg)}ms")
 
-        # Последние 100, свежие сверху
         for e in reversed(entries[-100:]):
             row = ctk.CTkFrame(self.net_container, fg_color=Palette.BG_PANEL,
                                 corner_radius=8, border_width=1, border_color=Palette.BORDER)
@@ -1476,7 +1544,6 @@ class App(ctk.CTk):
             url = e["url"]
             error = e.get("error")
 
-            # Иконка статуса
             if error or status >= 400:
                 icon, color = "❌", Palette.ERROR
             elif 200 <= status < 300:
@@ -1508,7 +1575,6 @@ class App(ctk.CTk):
         NET_MONITOR.clear()
         self._render_network()
 
-    # --- mini log / toast ---
     def mini_log(self, text, kind="normal"):
         if not hasattr(self, "mini_log") or not self.mini_log.winfo_exists():
             return
@@ -1530,7 +1596,8 @@ class App(ctk.CTk):
         try:
             self.config_data["window_geometry"] = self.geometry()
             save_config(self.config_data)
-        except Exception: pass
+        except Exception:
+            pass
         self._status_running = False
         self.destroy()
 
