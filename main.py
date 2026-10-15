@@ -375,15 +375,19 @@ async def command_poll_task(bot: Bot):
 
 async def execute_site_command(cmd: str, bot: Bot) -> str:
     cmd = cmd.strip()
-    if not cmd.startswith("."):
-        return f"❌ Неизвестная команда: {cmd}"
+    if not cmd:
+        return "❌ Пустая команда"
+
+    # Убираем точку, если она есть (для совместимости)
+    if cmd.startswith("."):
+        cmd = cmd[1:]
 
     parts = cmd.split(maxsplit=1)
-    command = parts[0]
+    command = parts[0].lower()
     arg = parts[1] if len(parts) > 1 else ""
 
     try:
-        if command == ".ping":
+        if command == "ping":
             api_ping = 0
             try:
                 start = time.time()
@@ -402,19 +406,6 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
             except Exception:
                 tcp_ping = -1
 
-            site_ping = -1
-            if SITE_API_URL:
-                try:
-                    start = time.time()
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"{SITE_API_URL}/status",
-                            headers={"X-Admin-Password": ADMIN_PASSWORD},
-                            timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                            pass
-                    site_ping = int((time.time() - start) * 1000)
-                except Exception:
-                    site_ping = -1
-
             try:
                 bot_info = await bot.get_me()
                 bot_username = f"@{bot_info.username}"
@@ -426,15 +417,14 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
             return (
                 f"API: {api_ping}ms\n"
                 f"TCP: {tcp_ping}ms\n"
-                f"APIS: {site_ping}ms\n"
                 f"Status: {status}\n"
                 f"User: {bot_username}"
             )
 
-        elif command == ".ban":
+        elif command == "ban":
             p = arg.split(maxsplit=2)
-            if len(p) < 1:
-                return "❌ .ban (ID) (time) (reason)"
+            if len(p) < 1 or not p[0]:
+                return "❌ ban (ID/username) (time) (reason)"
             target = p[0]
             ts = p[1] if len(p) > 1 else "forever"
             reason = p[2] if len(p) > 2 else "не указана"
@@ -451,8 +441,10 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
             ok = await api_add_ban(tid, target.lstrip("@"), ts, reason)
             return f"✅ Забанен {tid}" if ok else "❌ Ошибка"
 
-        elif command == ".unban":
+        elif command == "unban":
             target = arg.strip().lstrip("@")
+            if not target:
+                return "❌ unban (ID/username)"
             tid = 0
             try:
                 tid = int(target)
@@ -464,7 +456,7 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
             ok = await api_remove_ban(tid, target)
             return f"✅ Разбанен {tid}" if ok else "❌ Ошибка"
 
-        elif command == ".banlist":
+        elif command == "banlist":
             bans = await api_list_bans()
             if not bans:
                 return "📋 Бан-лист пуст"
@@ -472,16 +464,36 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
                      for i, b in enumerate(bans[:20])]
             return "📋 Бан-лист:\n" + "\n".join(lines)
 
-        elif command == ".idlist":
+        elif command == "idlist":
             if not USER_DATABASE:
                 return "📋 Список пуст"
             lines = [f"{i+1}. ID: {uid}, @{info['username'] or 'нет'}"
                      for i, (uid, info) in enumerate(list(USER_DATABASE.items())[:20])]
             return "🔢 Пользователи:\n" + "\n".join(lines)
 
-        elif command == ".ai":
+        elif command == "checkban":
             if not arg:
-                return "❌ .ai (вопрос)"
+                return "❌ checkban (ID/username)"
+            t = arg.strip().lstrip("@")
+            tid = None
+            try:
+                tid = int(t)
+            except ValueError:
+                for uid, info in USER_DATABASE.items():
+                    if info["username"] == t:
+                        tid = uid
+                        break
+            ban = await api_check_ban(user_id=tid, username=t)
+            if ban:
+                return (f"🔰 В бане\n"
+                        f"ID: {ban.get('id')}\n"
+                        f"Time: {ban.get('time')}\n"
+                        f"Reason: {ban.get('reason')}")
+            return f"🔰 Не в бане (ID: {tid or t})"
+
+        elif command == "ai":
+            if not arg:
+                return "❌ ai (вопрос)"
             if not GROQ_API_KEY:
                 return "❌ Groq не настроен"
             try:
@@ -499,8 +511,29 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
             except Exception as e:
                 return f"❌ Ошибка: {e}"
 
+        elif command == "data":
+            now = datetime.now(ZoneInfo("Europe/Moscow"))
+            return f"📅 {now.strftime('%d.%m.%Y %H:%M')} MSK"
+
+        elif command == "help":
+            return (
+                "📖 Доступные команды:\n"
+                "  ping          — пинг\n"
+                "  ban ID [time] [reason] — забанить\n"
+                "  unban ID      — разбанить\n"
+                "  banlist       — список банов\n"
+                "  checkban ID   — проверить бан\n"
+                "  idlist        — список пользователей\n"
+                "  ai вопрос     — спросить AI\n"
+                "  data          — текущее время\n"
+                "  help          — эта справка\n"
+                "  color N       — сменить цвет (1-5)\n"
+                "  color list    — список цветов\n"
+                "  clear         — очистить терминал"
+            )
+
         else:
-            return f"❌ Команда {command} не поддерживается"
+            return f"❌ Команда '{command}' не поддерживается (help — справка)"
     except Exception as e:
         return f"❌ Ошибка: {e}"
 
@@ -628,7 +661,7 @@ async def handle_business_message(message: Message, bot: Bot):
     asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
 
 # ============================================================
-# КОМАНДЫ
+# КОМАНДЫ (для бизнес-чата)
 # ============================================================
 
 async def send_reply(bot, chat_id, text, bc_id, to_dm, parse_mode="HTML"):
@@ -929,7 +962,7 @@ async def startup_greeting(bot: Bot):
         logger.error("❌ greeting: %s", e)
 
 # ============================================================
-# HTTP API ДЛЯ ПРИЛОЖЕНИЯ (живёт под /webhook, чтобы RelaxDev пропускал)
+# HTTP API ДЛЯ ПРИЛОЖЕНИЯ (под /webhook)
 # ============================================================
 
 bot: Bot = None
@@ -1038,7 +1071,6 @@ async def api_root_handler(request):
 async def start_http_api():
     app = aiohttp_web.Application(middlewares=[api_auth_middleware])
 
-    # Все эндпоинты под /webhook/api/... — RelaxDev пропускает только /webhook/*
     app.router.add_post("/webhook/api/ping", api_ping_handler)
     app.router.add_post("/webhook/api/status", api_status_handler)
     app.router.add_post("/webhook/api/command", api_command_handler)
@@ -1048,7 +1080,6 @@ async def start_http_api():
     app.router.add_post("/webhook/api/ban", api_ban_handler)
     app.router.add_post("/webhook/api/unban", api_unban_handler)
 
-    # Плюс корень /webhook — для проверки в браузере
     app.router.add_get("/webhook", api_root_handler)
     app.router.add_post("/webhook", api_root_handler)
 
