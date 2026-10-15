@@ -2,28 +2,10 @@ import customtkinter as ctk
 import requests
 import threading
 import time
-import json
-import os
 
-# ============ КОНФИГ ============
-CONFIG_FILE = "config.json"
-DEFAULT_CONFIG = {
-    "api_url": "https://telegramprobot.relaxdev.ru",
-    "token": "change-me-secret-token",
-}
-
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return DEFAULT_CONFIG.copy()
-
-def save_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+# ============ КОНФИГ (ВШИТ В КОД) ============
+API_URL = "https://telegramprobot.relaxdev.ru/webhook"
+APP_TOKEN = "871410danil"
 
 # ============ API КЛИЕНТ ============
 class BotAPI:
@@ -43,6 +25,8 @@ class BotAPI:
                 return {"error": "Неверный токен"}
             if e.response.status_code == 423:
                 return {"error": "Бот на паузе"}
+            if e.response.status_code == 404:
+                return {"error": "404 — RelaxDev не проксирует этот путь"}
             return {"error": f"HTTP {e.response.status_code}"}
         except requests.exceptions.ConnectionError:
             return {"error": "Нет соединения с ботом"}
@@ -78,8 +62,7 @@ class App(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        self.config_data = load_config()
-        self.api = BotAPI(self.config_data["api_url"], self.config_data["token"])
+        self.api = BotAPI(API_URL, APP_TOKEN)
         self.paused = False
         self._status_running = True
 
@@ -107,7 +90,6 @@ class App(ctk.CTk):
         self.pause_btn.pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="📋 Баны", width=110, command=self._show_bans).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="🗑 Очистить лог", width=130, command=self._clear_log).pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="⚙ Настройки", width=110, command=self._open_settings).pack(side="right", padx=5)
 
         chips_label = ctk.CTkLabel(self, text="Быстрые команды:", font=("Arial", 12), anchor="w")
         chips_label.pack(fill="x", padx=15, pady=(10, 0))
@@ -135,6 +117,8 @@ class App(ctk.CTk):
         self.log_box = ctk.CTkTextbox(self, font=("Consolas", 12))
         self.log_box.pack(fill="both", expand=True, padx=10, pady=(5, 10))
         self.log_box.configure(state="normal")
+        self._log(f"API: {API_URL}")
+        self._log(f"Токен: {APP_TOKEN}")
 
     def _log(self, text):
         timestamp = time.strftime("%H:%M:%S")
@@ -162,6 +146,8 @@ class App(ctk.CTk):
                 try:
                     data = self.api.status()
                     if "error" in data:
+                        err = data["error"]
+                        self.after(0, lambda e=err: self._log(f"⚠ Статус: {e}"))
                         self.after(0, lambda: self._set_status(False))
                     else:
                         self.paused = data.get("paused", False)
@@ -237,35 +223,8 @@ class App(ctk.CTk):
                 return
             self._log(f"📋 Баны ({len(bans)}):")
             for b in bans[:30]:
-                self._log(f"   • ID: {b.get('id')} | @{b.get('username', '—')} | {b.get('time', 'forever')} | {b.get('reason', '')}")
+                self._log(f"   • ID: {b.get('id')} | @{b.get('username', '—')} | {b.get('time', 'forever')}")
         threading.Thread(target=task, daemon=True).start()
-
-    def _open_settings(self):
-        win = ctk.CTkToplevel(self)
-        win.title("Настройки")
-        win.geometry("450x280")
-        win.transient(self)
-        win.grab_set()
-
-        ctk.CTkLabel(win, text="API URL:", font=("Arial", 13)).pack(pady=(20, 5))
-        url_entry = ctk.CTkEntry(win, width=380)
-        url_entry.insert(0, self.config_data["api_url"])
-        url_entry.pack()
-
-        ctk.CTkLabel(win, text="APP_TOKEN:", font=("Arial", 13)).pack(pady=(15, 5))
-        token_entry = ctk.CTkEntry(win, width=380, show="•")
-        token_entry.insert(0, self.config_data["token"])
-        token_entry.pack()
-
-        def save():
-            self.config_data["api_url"] = url_entry.get().strip()
-            self.config_data["token"] = token_entry.get().strip()
-            save_config(self.config_data)
-            self.api = BotAPI(self.config_data["api_url"], self.config_data["token"])
-            self._log("✅ Настройки сохранены")
-            win.destroy()
-
-        ctk.CTkButton(win, text="Сохранить", width=200, command=save).pack(pady=25)
 
     def on_close(self):
         self._status_running = False
