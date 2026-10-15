@@ -39,7 +39,8 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = "openai/gpt-oss-120b"
 
-APP_TOKEN = os.getenv("APP_TOKEN", "change-me-secret-token").strip()
+# 🔐 ТОКЕН ВШИТ В КОД (тот же самый должен быть в apppk/app.py)
+APP_TOKEN = "871410danil"
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен.")
@@ -59,7 +60,7 @@ logger.info("🤖 Запуск Telegram бота")
 logger.info("OWNER_ID: %s", OWNER_ID)
 logger.info("SITE_API_URL: %s", SITE_API_URL if SITE_API_URL else "не задан")
 logger.info("GROQ_API_KEY: %s", "установлен" if GROQ_API_KEY else "❌ НЕ УСТАНОВЛЕН")
-logger.info("APP_TOKEN: %s", "установлен" if APP_TOKEN else "❌ НЕ УСТАНОВЛЕН")
+logger.info("APP_TOKEN (вшит): %r", APP_TOKEN)
 logger.info("=" * 70)
 
 # ============================================================
@@ -78,7 +79,6 @@ BAN_CACHE = {}
 BAN_CACHE_TTL = 60
 TRACE_BUFFER = {}
 
-# Глобальный флаг паузы (для API приложения)
 BOT_PAUSED = False
 
 BAD_WORDS = [
@@ -153,7 +153,7 @@ def add_trace_step(request_id: str, step: str):
         del TRACE_BUFFER[oldest]
 
 # ============================================================
-# API ДЛЯ САЙТА
+# API ДЛЯ САЙТА (старое, не трогаем)
 # ============================================================
 
 async def api_check_ban(user_id=None, username=None):
@@ -308,7 +308,7 @@ async def api_send_trace(request_id: str, trace_data: list):
         pass
 
 # ============================================================
-# HEARTBEAT + HEALTHCHECK
+# HEARTBEAT
 # ============================================================
 
 async def heartbeat_task(bot: Bot):
@@ -358,7 +358,7 @@ async def heartbeat_task(bot: Bot):
         await asyncio.sleep(30)
 
 # ============================================================
-# POLL КОМАНД
+# POLL КОМАНД (старое, для сайта)
 # ============================================================
 
 async def command_poll_task(bot: Bot):
@@ -929,16 +929,16 @@ async def startup_greeting(bot: Bot):
         logger.error("❌ greeting: %s", e)
 
 # ============================================================
-# HTTP API ДЛЯ ПРИЛОЖЕНИЯ
+# HTTP API ДЛЯ ПРИЛОЖЕНИЯ (живёт под /webhook, чтобы RelaxDev пропускал)
 # ============================================================
 
-# Глобальная ссылка на бота (заполняется в main)
 bot: Bot = None
 
 @aiohttp_web.middleware
 async def api_auth_middleware(request, handler):
-    if request.path.startswith("/api/"):
+    if request.path.startswith("/webhook/api/"):
         token = request.headers.get("X-App-Token")
+        logger.info("🔐 AUTH path=%s got=%r expected=%r", request.path, token, APP_TOKEN)
         if token != APP_TOKEN:
             return aiohttp_web.json_response({"error": "unauthorized"}, status=401)
     return await handler(request)
@@ -980,13 +980,13 @@ async def api_status_handler(request):
 async def api_pause_handler(request):
     global BOT_PAUSED
     BOT_PAUSED = True
-    logger.info("⏸ Бот поставлен на паузу через API")
+    logger.info("⏸ Бот на паузе (через API)")
     return aiohttp_web.json_response({"ok": True, "paused": True})
 
 async def api_resume_handler(request):
     global BOT_PAUSED
     BOT_PAUSED = False
-    logger.info("▶ Бот возобновлён через API")
+    logger.info("▶ Бот возобновлён (через API)")
     return aiohttp_web.json_response({"ok": True, "paused": False})
 
 async def api_command_handler(request):
@@ -1032,24 +1032,32 @@ async def api_unban_handler(request):
     except Exception as e:
         return aiohttp_web.json_response({"error": str(e)}, status=500)
 
+async def api_root_handler(request):
+    return aiohttp_web.json_response({"status": "ok", "service": "RedSave API"})
+
 async def start_http_api():
     app = aiohttp_web.Application(middlewares=[api_auth_middleware])
-    app.router.add_post("/api/ping", api_ping_handler)
-    app.router.add_post("/api/status", api_status_handler)
-    app.router.add_post("/api/command", api_command_handler)
-    app.router.add_post("/api/pause", api_pause_handler)
-    app.router.add_post("/api/resume", api_resume_handler)
-    app.router.add_post("/api/banlist", api_banlist_handler)
-    app.router.add_post("/api/ban", api_ban_handler)
-    app.router.add_post("/api/unban", api_unban_handler)
 
-    # Порт берём из WEB_PORT (RelaxDev), либо PORT, либо 8080
+    # Все эндпоинты под /webhook/api/... — RelaxDev пропускает только /webhook/*
+    app.router.add_post("/webhook/api/ping", api_ping_handler)
+    app.router.add_post("/webhook/api/status", api_status_handler)
+    app.router.add_post("/webhook/api/command", api_command_handler)
+    app.router.add_post("/webhook/api/pause", api_pause_handler)
+    app.router.add_post("/webhook/api/resume", api_resume_handler)
+    app.router.add_post("/webhook/api/banlist", api_banlist_handler)
+    app.router.add_post("/webhook/api/ban", api_ban_handler)
+    app.router.add_post("/webhook/api/unban", api_unban_handler)
+
+    # Плюс корень /webhook — для проверки в браузере
+    app.router.add_get("/webhook", api_root_handler)
+    app.router.add_post("/webhook", api_root_handler)
+
     port = int(os.environ.get("WEB_PORT", os.environ.get("PORT", 8080)))
     runner = aiohttp_web.AppRunner(app)
     await runner.setup()
     site = aiohttp_web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info(f"🌐 HTTP API запущен на 0.0.0.0:{port}")
+    logger.info(f"🌐 HTTP API запущен на 0.0.0.0:{port} (пути: /webhook/api/*)")
 
 # ============================================================
 # ЗАПУСК
