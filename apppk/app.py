@@ -16,7 +16,7 @@ from datetime import datetime
 # ============================================================
 API_URL = "https://telegramprobot.relaxdev.ru/webhook"
 APP_TOKEN = "871410danil"
-APP_VERSION = "4.0.1-ultra"
+APP_VERSION = "5.0.0-ultra"
 
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".redsave_config.json")
 HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".redsave_history.json")
@@ -45,28 +45,69 @@ FORTUNES = [
 ]
 
 # ============================================================
+# УТИЛИТЫ
+# ============================================================
+def parse_duration(s):
+    if not s:
+        return 0
+    s = s.strip().lower()
+    matches = re.findall(r'(\d+)\s*([hms])', s)
+    if not matches:
+        if s.isdigit():
+            return int(s) * 60
+        return 0
+    total = 0
+    for value, unit in matches:
+        v = int(value)
+        if unit == "h":
+            total += v * 3600
+        elif unit == "m":
+            total += v * 60
+        elif unit == "s":
+            total += v
+    return total
+
+
+def format_duration(seconds):
+    if seconds <= 0:
+        return "0s"
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}m")
+    if s and not h:
+        parts.append(f"{s}s")
+    return " ".join(parts) if parts else "0s"
+
+# ============================================================
 # ПАЛИТРА
 # ============================================================
 class Palette:
-    BG_DARK = "#08080d"
-    BG_PANEL = "#0f0f18"
-    BG_CARD = "#161622"
-    BG_CARD_HOVER = "#1e1e2d"
-    BG_INPUT = "#13131c"
-    BORDER = "#22222e"
-    BORDER_LIGHT = "#2f2f40"
-    TEXT = "#ececf5"
-    TEXT_DIM = "#8a8aa0"
+    BG_DARK = "#07070c"
+    BG_PANEL = "#0e0e17"
+    BG_CARD = "#151521"
+    BG_CARD_HOVER = "#1d1d2c"
+    BG_INPUT = "#12121b"
+    BORDER = "#20202c"
+    BORDER_LIGHT = "#2d2d40"
+    TEXT = "#eeeef7"
+    TEXT_DIM = "#8b8ba3"
     TEXT_DIM2 = "#55556a"
     ACCENT = "#6366f1"
     ACCENT_HOVER = "#7c7ff2"
     ACCENT_GLOW = "#a78bfa"
     SUCCESS = "#22c55e"
+    SUCCESS_GLOW = "#4ade80"
     ERROR = "#ef4444"
+    ERROR_GLOW = "#f87171"
     WARNING = "#f59e0b"
+    WARNING_GLOW = "#fbbf24"
     INFO = "#3b82f6"
-    PINK = "#ec4899"
     CYAN = "#06b6d4"
+    PINK = "#ec4899"
 
 # ============================================================
 # NETWORK MONITOR
@@ -78,11 +119,9 @@ class NetworkMonitor:
         self.lock = threading.Lock()
 
     def log(self, method, url, status, duration_ms, size=0, error=None):
-        entry = {
-            "ts": time.time(), "method": method, "url": url,
-            "status": status, "duration_ms": duration_ms,
-            "size": size, "error": error,
-        }
+        entry = {"ts": time.time(), "method": method, "url": url,
+                 "status": status, "duration_ms": duration_ms,
+                 "size": size, "error": error}
         with self.lock:
             self.requests.append(entry)
             if len(self.requests) > self.limit:
@@ -99,14 +138,11 @@ class NetworkMonitor:
 NET_MONITOR = NetworkMonitor(limit=300)
 
 # ============================================================
-# КОНФИГ
+# КОНФИГ / ИСТОРИЯ
 # ============================================================
 def load_config():
-    defaults = {
-        "color": 5, "font_size": 13, "sound": True, "lang": "ru",
-        "window_geometry": "1200x760", "aliases": {},
-        "acrylic": True, "particles": True, "gradient_bg": True,
-    }
+    defaults = {"color": 5, "font_size": 13, "sound": True, "lang": "ru",
+                "window_geometry": "1240x800", "aliases": {}}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -154,7 +190,7 @@ def play_sound(kind="ok", enabled=True):
         pass
 
 # ============================================================
-# API КЛИЕНТ
+# API
 # ============================================================
 class BotAPI:
     def __init__(self, base_url, token):
@@ -182,7 +218,7 @@ class BotAPI:
             elif status == 423:
                 result = {"error": "Бот на паузе"}
             elif status == 404:
-                result = {"error": "RelaxDev не проксирует путь"}
+                result = {"error": "404"}
             else:
                 result = {"error": f"HTTP {status}"}
             error = result["error"]
@@ -199,35 +235,24 @@ class BotAPI:
         NET_MONITOR.log("POST", url, status, duration, size, error)
         return result
 
-    def ping(self):
-        return self._post("ping")
-
-    def status(self):
-        return self._post("status")
-
-    def command(self, cmd):
-        return self._post("command", {"command": cmd})
-
-    def pause(self):
-        return self._post("pause")
-
-    def resume(self):
-        return self._post("resume")
+    def ping(self): return self._post("ping")
+    def status(self): return self._post("status")
+    def command(self, cmd): return self._post("command", {"command": cmd})
+    def pause(self): return self._post("pause")
+    def resume(self): return self._post("resume")
 
 # ============================================================
-# АНИМИРОВАННАЯ ТОЧКА
+# ANIMATED DOT
 # ============================================================
 class AnimatedDot(tk.Canvas):
     def __init__(self, parent, color=Palette.SUCCESS, size=14, bg=Palette.BG_CARD):
         super().__init__(parent, width=size, height=size, bg=bg, highlightthickness=0)
         self.size = size
-        self.color = color
         self.phase = 0
         self.dot = self.create_oval(2, 2, size-2, size-2, fill=color, outline="")
         self._animate()
 
     def set_color(self, color):
-        self.color = color
         try:
             self.itemconfig(self.dot, fill=color)
         except Exception:
@@ -250,32 +275,134 @@ class AnimatedDot(tk.Canvas):
             pass
 
 # ============================================================
-# TRAFFIC LIGHTS
+# STATUS RING
 # ============================================================
-class TrafficLights(tk.Canvas):
-    def __init__(self, parent, size=(54, 18), bg=Palette.BG_PANEL):
-        super().__init__(parent, width=size[0], height=size[1],
-                          bg=bg, highlightthickness=0)
-        self.c1 = self.create_oval(4, 4, 14, 14, fill="#2a2a35", outline="")
-        self.c2 = self.create_oval(22, 4, 32, 14, fill="#2a2a35", outline="")
-        self.c3 = self.create_oval(40, 4, 50, 14, fill="#2a2a35", outline="")
+class StatusRing(tk.Canvas):
+    def __init__(self, parent, size=80, bg=Palette.BG_CARD):
+        super().__init__(parent, width=size, height=size, bg=bg, highlightthickness=0)
+        self.size = size
         self.state = "unknown"
-        self.phase = 0
+        self.pulse = 0
         self._animate()
 
     def set_state(self, state):
         self.state = state
-        colors = {
-            "online": ("#22c55e", "#2a2a35", "#2a2a35"),
-            "paused": ("#2a2a35", "#f59e0b", "#2a2a35"),
-            "offline": ("#2a2a35", "#2a2a35", "#ef4444"),
-            "unknown": ("#2a2a35", "#2a2a35", "#2a2a35"),
-        }
-        c1, c2, c3 = colors.get(state, colors["unknown"])
+
+    def _animate(self):
+        if not self.winfo_exists():
+            return
         try:
-            self.itemconfig(self.c1, fill=c1)
-            self.itemconfig(self.c2, fill=c2)
-            self.itemconfig(self.c3, fill=c3)
+            self.delete("all")
+            cx = cy = self.size / 2
+            r = self.size / 2 - 6
+            colors = {"online": "#22c55e", "paused": "#f59e0b",
+                      "offline": "#ef4444", "unknown": "#55556a"}
+            color = colors.get(self.state, "#55556a")
+            self.pulse = (self.pulse + 1) % 60
+            ring_r = r + 2 * math.sin(self.pulse / 60 * 2 * math.pi)
+            self.create_oval(cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r,
+                             outline=color, width=2)
+            self.create_oval(cx - r, cy - r, cx + r, cy + r,
+                             outline=color, width=3, fill="")
+            r2 = 6
+            self.create_oval(cx - r2, cy - r2, cx + r2, cy + r2,
+                             fill=color, outline="")
+        except Exception:
+            pass
+        try:
+            self.after(50, self._animate)
+        except Exception:
+            pass
+
+# ============================================================
+# MAINTENANCE BADGE
+# ============================================================
+class MaintenanceBadge(tk.Canvas):
+    def __init__(self, parent, width=280, height=34, bg=Palette.BG_PANEL):
+        super().__init__(parent, width=width, height=height, bg=bg, highlightthickness=0)
+        self.w = width
+        self.h = height
+        self.active = False
+        self.phase = 0
+        self.remaining = 0
+        self._draw()
+        self._animate()
+
+    def set_state(self, active, remaining=0):
+        self.active = active
+        self.remaining = remaining
+
+    def _draw(self):
+        try:
+            self.delete("all")
+            w, h = self.w, self.h
+            cy = h / 2
+            pad = 3
+            pill_h = h - 2 * pad
+
+            if self.active:
+                color = Palette.ERROR
+                glow = Palette.ERROR_GLOW
+                text = "Тех. работы"
+                if self.remaining > 0:
+                    text = f"Тех. работы · {format_duration(self.remaining)}"
+            else:
+                color = Palette.SUCCESS
+                glow = Palette.SUCCESS_GLOW
+                text = "Работает"
+
+            text_w = 7 * len(text) + 20
+            circle_w = pill_h
+            pill_w = min(w, circle_w + text_w + 12)
+            r = pill_h / 2
+
+            # Фон таблетки
+            self.create_oval(pad, pad, pad + pill_h, h - pad,
+                             fill=Palette.BG_CARD, outline="")
+            self.create_oval(pill_w - pad - pill_h, pad, pill_w - pad, h - pad,
+                             fill=Palette.BG_CARD, outline="")
+            self.create_rectangle(pad + r, pad, pill_w - pad - r, h - pad,
+                                  fill=Palette.BG_CARD, outline="")
+
+            # Обводка
+            self.create_arc(pad, pad, pad + pill_h, h - pad, start=90, extent=180,
+                            outline=Palette.BORDER, style="arc", width=1)
+            self.create_arc(pill_w - pad - pill_h, pad, pill_w - pad, h - pad,
+                            start=270, extent=180,
+                            outline=Palette.BORDER, style="arc", width=1)
+            self.create_line(pad + r, pad, pill_w - pad - r, pad, fill=Palette.BORDER)
+            self.create_line(pad + r, h - pad, pill_w - pad - r, h - pad, fill=Palette.BORDER)
+
+            # Свечение
+            if self.active:
+                glow_a = 0.4 + 0.6 * abs(math.sin(self.phase / 20))
+                gx = pad + r
+                self.create_oval(gx - r - 3, cy - r - 3, gx + r + 3, cy + r + 3,
+                                 fill="", outline=glow, width=2)
+
+            # Круг с иконкой
+            cx = pad + r
+            cr = r - 3
+            self.create_oval(cx - cr, cy - cr, cx + cr, cy + cr,
+                             fill=color, outline="")
+
+            if self.active:
+                k = cr * 0.5
+                self.create_line(cx - k, cy - k, cx + k, cy + k,
+                                 fill="#ffffff", width=2, capstyle="round")
+                self.create_line(cx + k, cy - k, cx - k, cy + k,
+                                 fill="#ffffff", width=2, capstyle="round")
+            else:
+                k = cr * 0.55
+                self.create_line(cx - k, cy, cx - k * 0.15, cy + k * 0.75,
+                                 fill="#ffffff", width=2, capstyle="round")
+                self.create_line(cx - k * 0.15, cy + k * 0.75, cx + k, cy - k * 0.7,
+                                 fill="#ffffff", width=2, capstyle="round")
+
+            # Текст
+            self.create_text(pad + pill_h + 8, cy, text=text,
+                             anchor="w", fill=Palette.TEXT,
+                             font=("Arial", 10, "bold"))
         except Exception:
             pass
 
@@ -283,14 +410,47 @@ class TrafficLights(tk.Canvas):
         if not self.winfo_exists():
             return
         try:
-            self.phase += 1
-            if self.state == "online":
-                w = 1 + int(0.5 + 0.5 * math.sin(self.phase / 20))
-                self.itemconfig(self.c1, outline="#22c55e", width=w)
+            self.phase = (self.phase + 1) % 60
+            self._draw()
         except Exception:
             pass
         try:
-            self.after(60, self._animate)
+            self.after(50, self._animate)
+        except Exception:
+            pass
+
+# ============================================================
+# STAT CARD
+# ============================================================
+class StatCard(ctk.CTkFrame):
+    def __init__(self, parent, label, value="—", accent=Palette.ACCENT):
+        super().__init__(parent, fg_color=Palette.BG_CARD, corner_radius=14,
+                         border_width=1, border_color=Palette.BORDER)
+        self.accent = accent
+        inner = ctk.CTkFrame(self, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=18, pady=16)
+        self.value_label = ctk.CTkLabel(
+            inner, text=value, font=ctk.CTkFont(size=26, weight="bold"),
+            text_color=accent)
+        self.value_label.pack(anchor="w")
+        ctk.CTkLabel(inner, text=label.upper(),
+                     font=ctk.CTkFont(size=10, weight="bold"),
+                     text_color=Palette.TEXT_DIM2).pack(anchor="w", pady=(2, 0))
+        self.bind("<Enter>", self._hover_in)
+        self.bind("<Leave>", self._hover_out)
+
+    def set_value(self, value):
+        self.value_label.configure(text=value)
+
+    def _hover_in(self, e):
+        try:
+            self.configure(border_color=self.accent)
+        except Exception:
+            pass
+
+    def _hover_out(self, e):
+        try:
+            self.configure(border_color=Palette.BORDER)
         except Exception:
             pass
 
@@ -340,7 +500,7 @@ class RTTGraph(tk.Canvas):
             pass
 
 # ============================================================
-# GRADIENT BACKGROUND
+# GRADIENT BG
 # ============================================================
 class GradientBackground(tk.Canvas):
     def __init__(self, parent, **kwargs):
@@ -357,10 +517,8 @@ class GradientBackground(tk.Canvas):
             self.particles = []
             for _ in range(count):
                 self.particles.append({
-                    "x": random.uniform(0, w),
-                    "y": random.uniform(0, h),
-                    "vx": random.uniform(-0.3, 0.3),
-                    "vy": random.uniform(-0.3, 0.3),
+                    "x": random.uniform(0, w), "y": random.uniform(0, h),
+                    "vx": random.uniform(-0.3, 0.3), "vy": random.uniform(-0.3, 0.3),
                     "r": random.uniform(0.8, 2.2),
                     "c": random.choice(["#6366f1", "#8b5cf6", "#a78bfa", "#06b6d4"]),
                 })
@@ -380,15 +538,14 @@ class GradientBackground(tk.Canvas):
             self.phase = (self.phase + 0.5) % 360
             steps = 20
             for i in range(steps):
-                r1, g1, b1 = 10, 10, 20
-                r2, g2, b2 = 20, 18, 40
+                r1, g1, b1 = 8, 8, 16
+                r2, g2, b2 = 18, 16, 38
                 wave = 0.5 + 0.5 * math.sin((self.phase + i * 8) * math.pi / 180)
                 r = int(r1 + (r2 - r1) * wave)
                 g = int(g1 + (g2 - g1) * wave)
                 b = int(b1 + (b2 - b1) * wave)
-                color = f"#{r:02x}{g:02x}{b:02x}"
                 self.create_rectangle(0, h * i / steps, w, h * (i + 1) / steps,
-                                      fill=color, outline="")
+                                      fill=f"#{r:02x}{g:02x}{b:02x}", outline="")
             if not self.particles:
                 self.start_particles(40)
             for p in self.particles:
@@ -406,85 +563,6 @@ class GradientBackground(tk.Canvas):
         self.after(80, self._animate)
 
 # ============================================================
-# STAT CARD
-# ============================================================
-class StatCard(ctk.CTkFrame):
-    def __init__(self, parent, label, value="—", accent=Palette.ACCENT):
-        super().__init__(parent, fg_color=Palette.BG_CARD, corner_radius=14,
-                         border_width=1, border_color=Palette.BORDER)
-        self.accent = accent
-        inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=18, pady=16)
-        self.value_label = ctk.CTkLabel(
-            inner, text=value, font=ctk.CTkFont(size=26, weight="bold"),
-            text_color=accent
-        )
-        self.value_label.pack(anchor="w")
-        ctk.CTkLabel(
-            inner, text=label.upper(), font=ctk.CTkFont(size=10, weight="bold"),
-            text_color=Palette.TEXT_DIM2
-        ).pack(anchor="w", pady=(2, 0))
-        self.bind("<Enter>", self._hover_in)
-        self.bind("<Leave>", self._hover_out)
-
-    def set_value(self, value):
-        self.value_label.configure(text=value)
-
-    def _hover_in(self, e):
-        try:
-            self.configure(border_color=self.accent)
-        except Exception:
-            pass
-
-    def _hover_out(self, e):
-        try:
-            self.configure(border_color=Palette.BORDER)
-        except Exception:
-            pass
-
-# ============================================================
-# STATUS RING
-# ============================================================
-class StatusRing(tk.Canvas):
-    def __init__(self, parent, size=80, bg=Palette.BG_CARD):
-        super().__init__(parent, width=size, height=size, bg=bg, highlightthickness=0)
-        self.size = size
-        self.state = "unknown"
-        self.pulse = 0
-        self._animate()
-
-    def set_state(self, state):
-        self.state = state
-
-    def _animate(self):
-        if not self.winfo_exists():
-            return
-        try:
-            self.delete("all")
-            cx = cy = self.size / 2
-            r = self.size / 2 - 6
-            colors = {
-                "online": "#22c55e", "paused": "#f59e0b",
-                "offline": "#ef4444", "unknown": "#55556a",
-            }
-            color = colors.get(self.state, "#55556a")
-            self.pulse = (self.pulse + 1) % 60
-            ring_r = r + 2 * math.sin(self.pulse / 60 * 2 * math.pi)
-            self.create_oval(cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r,
-                             outline=color, width=2)
-            self.create_oval(cx - r, cy - r, cx + r, cy + r,
-                             outline=color, width=3, fill="")
-            r2 = 6
-            self.create_oval(cx - r2, cy - r2, cx + r2, cy + r2,
-                             fill=color, outline="")
-        except Exception:
-            pass
-        try:
-            self.after(50, self._animate)
-        except Exception:
-            pass
-
-# ============================================================
 # SIDEBAR BUTTON
 # ============================================================
 class SidebarButton(ctk.CTkFrame):
@@ -495,13 +573,11 @@ class SidebarButton(ctk.CTkFrame):
         self.active = active
         self.icon_label = ctk.CTkLabel(
             self, text=icon, font=ctk.CTkFont(size=16),
-            text_color=Palette.ACCENT if active else Palette.TEXT_DIM, width=32
-        )
+            text_color=Palette.ACCENT if active else Palette.TEXT_DIM, width=32)
         self.icon_label.pack(side="left", padx=(10, 0))
         self.text_label = ctk.CTkLabel(
             self, text=text, font=ctk.CTkFont(size=13),
-            text_color=Palette.TEXT if active else Palette.TEXT_DIM, anchor="w"
-        )
+            text_color=Palette.TEXT if active else Palette.TEXT_DIM, anchor="w")
         self.text_label.pack(side="left", padx=(4, 0), fill="x", expand=True)
         self._set_active(active)
         for w in (self, self.icon_label, self.text_label):
@@ -549,8 +625,7 @@ class Terminal(ctk.CTkFrame):
     def build(self):
         self.term_container = ctk.CTkFrame(
             self, fg_color=Palette.BG_DARK, corner_radius=14,
-            border_width=1, border_color=Palette.BORDER
-        )
+            border_width=1, border_color=Palette.BORDER)
         self.term_container.pack(fill="both", expand=True)
         self.term_container.grid_columnconfigure(0, weight=1)
         self.term_container.grid_rowconfigure(1, weight=1)
@@ -560,14 +635,17 @@ class Terminal(ctk.CTkFrame):
         title_bar.grid(row=0, column=0, sticky="ew")
         title_bar.grid_propagate(False)
 
-        self.traffic = TrafficLights(title_bar, bg=Palette.BG_PANEL)
+        self.traffic = tk.Canvas(title_bar, width=54, height=18,
+                                  bg=Palette.BG_PANEL, highlightthickness=0)
         self.traffic.pack(side="left", padx=(12, 8))
+        self._tc1 = self.traffic.create_oval(4, 4, 14, 14, fill="#2a2a35", outline="")
+        self._tc2 = self.traffic.create_oval(22, 4, 32, 14, fill="#2a2a35", outline="")
+        self._tc3 = self.traffic.create_oval(40, 4, 50, 14, fill="#2a2a35", outline="")
 
         self.term_title = ctk.CTkLabel(
             title_bar, text="RedSave Terminal",
             font=ctk.CTkFont(family="Consolas", size=11),
-            text_color=Palette.TEXT_DIM
-        )
+            text_color=Palette.TEXT_DIM)
         self.term_title.pack(side="left", padx=8)
 
         self.live_btn = ctk.CTkButton(
@@ -575,16 +653,14 @@ class Terminal(ctk.CTkFrame):
             fg_color="transparent", hover_color=Palette.BG_CARD,
             text_color=Palette.ACCENT_GLOW,
             font=ctk.CTkFont(size=10, weight="bold"),
-            command=self._jump_to_end
-        )
+            command=self._jump_to_end)
         self.live_btn.pack(side="right", padx=8)
 
         self.terminal = ctk.CTkTextbox(
             self.term_container,
             font=ctk.CTkFont(family="Consolas", size=self.app.config_data.get("font_size", 13)),
             fg_color=Palette.BG_DARK, border_width=0, corner_radius=0,
-            text_color=Palette.TEXT, wrap="word"
-        )
+            text_color=Palette.TEXT, wrap="word")
         self.terminal.grid(row=1, column=0, sticky="nsew")
         for ev in ("<Key>", "<<Paste>>", "<BackSpace>", "<Delete>", "<Control-v>", "<Control-V>"):
             self.terminal.bind(ev, lambda e: "break")
@@ -604,18 +680,16 @@ class Terminal(ctk.CTkFrame):
         self.prompt = ctk.CTkLabel(
             input_container, text="❯",
             font=ctk.CTkFont(family="Consolas", size=16, weight="bold"),
-            text_color=Palette.ACCENT
-        )
+            text_color=Palette.ACCENT)
         self.prompt.pack(side="left", padx=(16, 8))
         self._start_prompt_pulse()
 
         self.entry = ctk.CTkEntry(
             input_container,
-            placeholder_text="Команда... (help, ↑↓ история, Tab автодополнение)",
+            placeholder_text="Команда... (tex on 1h, help, ban 123, ai вопрос)",
             font=ctk.CTkFont(family="Consolas", size=self.app.config_data.get("font_size", 13)),
             fg_color="transparent", border_width=0,
-            text_color=Palette.TEXT, placeholder_text_color=Palette.TEXT_DIM2
-        )
+            text_color=Palette.TEXT, placeholder_text_color=Palette.TEXT_DIM2)
         self.entry.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8)
         self.entry.bind("<Return>", lambda e: self.on_enter())
         self.entry.bind("<Up>", self.history_up)
@@ -630,8 +704,7 @@ class Terminal(ctk.CTkFrame):
             fg_color=Palette.ACCENT, hover_color=Palette.ACCENT_HOVER,
             text_color="#ffffff", corner_radius=10,
             font=ctk.CTkFont(size=11, weight="bold"),
-            command=self.on_enter
-        ).pack(side="right", padx=(0, 14), pady=8)
+            command=self.on_enter).pack(side="right", padx=(0, 14), pady=8)
 
         self.progress = ctk.CTkProgressBar(self.term_container, height=2,
                                             progress_color=Palette.ACCENT_GLOW)
@@ -643,6 +716,7 @@ class Terminal(ctk.CTkFrame):
             (f"RedSave Terminal {APP_VERSION}", "header"),
             (f"API: {API_URL}", "info"),
             (f"{random.choice(FORTUNES)}", "info"),
+            ("tex on 1h / tex off — тех. работы", "info"),
             ("help — список команд", "info"),
             ("", "normal"),
         ]
@@ -691,11 +765,9 @@ class Terminal(ctk.CTkFrame):
         self.after(15, lambda: self._animate_typing(full_text, kind, idx + 1))
 
     def _apply_tag(self, tag, kind):
-        colors = {
-            "cmd": Palette.INFO, "ok": Palette.SUCCESS, "err": Palette.ERROR,
-            "warn": Palette.WARNING, "info": Palette.TEXT_DIM2,
-            "header": Palette.ACCENT_GLOW, "id": "#fbbf24", "date": "#a78bfa",
-        }
+        colors = {"cmd": Palette.INFO, "ok": Palette.SUCCESS, "err": Palette.ERROR,
+                  "warn": Palette.WARNING, "info": Palette.TEXT_DIM2,
+                  "header": Palette.ACCENT_GLOW, "id": "#fbbf24", "date": "#a78bfa"}
         if kind in colors:
             self.terminal.tag_config(tag, foreground=colors[kind])
 
@@ -708,7 +780,6 @@ class Terminal(ctk.CTkFrame):
                 self.terminal.configure(state="disabled")
         except Exception:
             pass
-
         self.terminal.configure(state="normal")
         tag = f"tag_{kind}"
         self.terminal.insert("end", text + "\n", tag)
@@ -813,7 +884,7 @@ class Terminal(ctk.CTkFrame):
         all_cmds = ["ping", "ban", "unban", "banlist", "checkban", "idlist",
                     "ai", "data", "help", "color", "clear", "calc", "alias",
                     "config", "uptime", "mem", "fortune", "export", "mute",
-                    "unmute", "lang", "reset"]
+                    "unmute", "lang", "reset", "tex", "maintenance"]
         matches = [c for c in all_cmds if c.startswith(current) and current]
         if len(matches) == 1:
             self.entry.delete(0, "end")
@@ -847,6 +918,9 @@ class Terminal(ctk.CTkFrame):
                 "idlist            — список пользователей",
                 "ai вопрос         — спросить AI",
                 "data              — текущее время",
+                "tex on 1h         — тех. работы",
+                "tex off           — выключить тех. работы",
+                "tex               — статус тех. работ",
                 "calc выражение    — калькулятор",
                 "alias name=cmd    — алиас",
                 "config            — настройки",
@@ -986,8 +1060,7 @@ class Terminal(ctk.CTkFrame):
         if cmd == "reset":
             self.app.config_data = {
                 "color": 5, "font_size": 13, "sound": True, "lang": "ru",
-                "window_geometry": "1200x760", "aliases": {},
-                "acrylic": True, "particles": True, "gradient_bg": True,
+                "window_geometry": "1240x800", "aliases": {},
             }
             save_config(self.app.config_data)
             self.app._apply_color(5)
@@ -1059,7 +1132,7 @@ class App(ctk.CTk):
         super().__init__(fg_color=Palette.BG_DARK)
         self.title(f"RedSave Control {APP_VERSION}")
         self.config_data = load_config()
-        self.geometry(self.config_data.get("window_geometry", "1200x760"))
+        self.geometry(self.config_data.get("window_geometry", "1240x800"))
         self.minsize(1000, 640)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -1074,6 +1147,8 @@ class App(ctk.CTk):
         self.current_color = self.config_data.get("color", 5)
         self.current_tab = "dashboard"
         self.start_time = time.time()
+        self.maintenance_active = False
+        self.maintenance_remaining = 0
 
         self._build_ui()
         self._apply_color(self.current_color)
@@ -1148,8 +1223,9 @@ class App(ctk.CTk):
         content = ctk.CTkFrame(self.main_container, fg_color="transparent", corner_radius=0)
         content.grid(row=0, column=1, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
-        content.grid_rowconfigure(1, weight=1)
+        content.grid_rowconfigure(2, weight=1)
 
+        # Хедер
         header = ctk.CTkFrame(content, fg_color=Palette.BG_PANEL, corner_radius=0, height=76)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_propagate(False)
@@ -1166,8 +1242,18 @@ class App(ctk.CTk):
                                         command=self._toggle_pause)
         self.pause_btn.pack(side="right", padx=(8, 26), pady=19)
 
+        # Бейдж тех. работ (между header и content_area)
+        badge_bar = ctk.CTkFrame(content, fg_color="transparent", height=44)
+        badge_bar.grid(row=1, column=0, sticky="ew", padx=22, pady=(10, 0))
+        badge_bar.grid_propagate(False)
+
+        self.maintenance_badge = MaintenanceBadge(badge_bar, width=300, height=34,
+                                                    bg=Palette.BG_DARK)
+        self.maintenance_badge.pack(side="left")
+
+        # Контент
         self.content_area = ctk.CTkFrame(content, fg_color="transparent")
-        self.content_area.grid(row=1, column=0, sticky="nsew", padx=22, pady=22)
+        self.content_area.grid(row=2, column=0, sticky="nsew", padx=22, pady=22)
         self.content_area.grid_columnconfigure(0, weight=1)
         self.content_area.grid_rowconfigure(0, weight=1)
 
@@ -1216,15 +1302,16 @@ class App(ctk.CTk):
             ("📋  Banlist", "banlist", Palette.WARNING),
             ("🔢  ID list", "idlist", Palette.ACCENT),
             ("🕒  Date", "data", Palette.ACCENT_GLOW),
+            ("🔧  Tex 1h", "tex on 1h", Palette.ERROR),
             ("❓  Help", "help", Palette.TEXT_DIM),
         ]:
-            ctk.CTkButton(row, text=text, width=120, height=42,
+            ctk.CTkButton(row, text=text, width=118, height=42,
                            fg_color=Palette.BG_PANEL, hover_color=Palette.BG_CARD_HOVER,
                            text_color=color, corner_radius=12,
                            font=ctk.CTkFont(size=12, weight="bold"),
                            border_width=1, border_color=Palette.BORDER,
                            command=lambda c=cmd: self._send_to_terminal(c)
-                           ).pack(side="left", padx=(0, 10))
+                           ).pack(side="left", padx=(0, 8))
 
         log_card = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=14,
                                  border_width=1, border_color=Palette.BORDER)
@@ -1273,28 +1360,23 @@ class App(ctk.CTk):
         tab = ctk.CTkFrame(self.content_area, fg_color="transparent")
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(1, weight=1)
-
         actions = ctk.CTkFrame(tab, fg_color="transparent")
         actions.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-
         ctk.CTkButton(actions, text="🔄  Обновить", width=130, height=38,
                        fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
                        text_color=Palette.TEXT, corner_radius=10,
                        font=ctk.CTkFont(size=12, weight="bold"),
                        border_width=1, border_color=Palette.BORDER,
                        command=self._render_network).pack(side="left")
-
         ctk.CTkButton(actions, text="🗑  Очистить", width=130, height=38,
                        fg_color=Palette.BG_CARD, hover_color=Palette.BG_CARD_HOVER,
                        text_color=Palette.ERROR, corner_radius=10,
                        font=ctk.CTkFont(size=12, weight="bold"),
                        border_width=1, border_color=Palette.BORDER,
                        command=self._clear_network).pack(side="left", padx=(8, 0))
-
         self.net_stats = ctk.CTkLabel(actions, text="", font=ctk.CTkFont(size=12),
                                        text_color=Palette.TEXT_DIM)
         self.net_stats.pack(side="right", padx=10)
-
         self.net_container = ctk.CTkScrollableFrame(tab, fg_color=Palette.BG_CARD,
                                                      corner_radius=14,
                                                      border_width=1, border_color=Palette.BORDER)
@@ -1324,7 +1406,7 @@ class App(ctk.CTk):
 
         colors = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=14,
                                 border_width=1, border_color=Palette.BORDER)
-        colors.grid(row=1, column=0, sticky="ew")
+        colors.grid(row=1, column=0, sticky="ew", pady=(0, 14))
         ctk.CTkLabel(colors, text="Цвет терминала",
                       font=ctk.CTkFont(size=15, weight="bold"),
                       text_color=Palette.TEXT).pack(anchor="w", padx=22, pady=(18, 12))
@@ -1336,8 +1418,32 @@ class App(ctk.CTk):
                            fg_color=fg, hover_color=bg,
                            corner_radius=10, border_width=2, border_color=Palette.BORDER,
                            command=lambda n=num: self._apply_color(n)).pack(side="left", padx=5)
+
+        maint = ctk.CTkFrame(tab, fg_color=Palette.BG_CARD, corner_radius=14,
+                              border_width=1, border_color=Palette.BORDER)
+        maint.grid(row=2, column=0, sticky="ew")
+        ctk.CTkLabel(maint, text="Тех. работы",
+                      font=ctk.CTkFont(size=15, weight="bold"),
+                      text_color=Palette.TEXT).pack(anchor="w", padx=22, pady=(18, 12))
+        btn_row = ctk.CTkFrame(maint, fg_color="transparent")
+        btn_row.pack(fill="x", padx=22, pady=(0, 22))
+
+        for text, cmd, color, hover in [
+            ("🔧  30m", "tex on 30m", Palette.WARNING, "#d97706"),
+            ("🔧  1h",  "tex on 1h",  Palette.WARNING, "#d97706"),
+            ("🔧  3h",  "tex on 3h",  Palette.WARNING, "#d97706"),
+            ("✅  Выкл", "tex off",   Palette.SUCCESS, "#16a34a"),
+        ]:
+            ctk.CTkButton(btn_row, text=text, width=110, height=40,
+                           fg_color=color, hover_color=hover,
+                           text_color="#000" if color == Palette.WARNING else "#fff",
+                           corner_radius=10,
+                           font=ctk.CTkFont(size=12, weight="bold"),
+                           command=lambda c=cmd: self._send_to_terminal(c)
+                           ).pack(side="left", padx=(0, 8))
         return tab
 
+    # --- утилиты ---
     def _switch_tab(self, key):
         if key == self.current_tab:
             return
@@ -1402,13 +1508,24 @@ class App(ctk.CTk):
             self.terminal_widget.run(cmd)
 
     def _set_status(self, online, ping=None, paused=False):
-        if hasattr(self, "terminal_widget") and hasattr(self.terminal_widget, "traffic"):
-            if paused:
-                self.terminal_widget.traffic.set_state("paused")
-            elif online:
-                self.terminal_widget.traffic.set_state("online")
-            else:
-                self.terminal_widget.traffic.set_state("offline")
+        # Обновляем точки в терминале
+        try:
+            if hasattr(self, "terminal_widget"):
+                tc = self.terminal_widget.traffic
+                if paused:
+                    tc.itemconfig(self.terminal_widget._tc1, fill="#2a2a35")
+                    tc.itemconfig(self.terminal_widget._tc2, fill="#f59e0b")
+                    tc.itemconfig(self.terminal_widget._tc3, fill="#2a2a35")
+                elif online:
+                    tc.itemconfig(self.terminal_widget._tc1, fill="#22c55e")
+                    tc.itemconfig(self.terminal_widget._tc2, fill="#2a2a35")
+                    tc.itemconfig(self.terminal_widget._tc3, fill="#2a2a35")
+                else:
+                    tc.itemconfig(self.terminal_widget._tc1, fill="#2a2a35")
+                    tc.itemconfig(self.terminal_widget._tc2, fill="#2a2a35")
+                    tc.itemconfig(self.terminal_widget._tc3, fill="#ef4444")
+        except Exception:
+            pass
 
         if paused:
             self.status_ring.set_state("paused")
@@ -1435,6 +1552,9 @@ class App(ctk.CTk):
                         self.after(0, lambda: self._set_status(False))
                     else:
                         self.paused = data.get("paused", False)
+                        maint = data.get("maintenance", False)
+                        rem = data.get("maintenance_remaining", 0)
+                        self.after(0, lambda m=maint, r=rem: self._update_maintenance(m, r))
                         self.after(0, self._update_pause_button)
                         u = data.get("users_count", 0)
                         b = data.get("bans_count", 0)
@@ -1449,6 +1569,12 @@ class App(ctk.CTk):
                     pass
                 time.sleep(10)
         threading.Thread(target=loop, daemon=True).start()
+
+    def _update_maintenance(self, active, remaining):
+        self.maintenance_active = active
+        self.maintenance_remaining = remaining
+        if hasattr(self, "maintenance_badge"):
+            self.maintenance_badge.set_state(active, remaining)
 
     def _start_network_refresh(self):
         def loop():
@@ -1524,48 +1650,39 @@ class App(ctk.CTk):
                           font=ctk.CTkFont(size=13)).pack(pady=60)
             self.net_stats.configure(text="")
             return
-
         total = len(entries)
         errs = sum(1 for e in entries if e.get("error") or (e.get("status") or 0) >= 400)
         avg = sum(e.get("duration_ms", 0) for e in entries) / max(1, total)
         self.net_stats.configure(text=f"Всего: {total}  |  Ошибок: {errs}  |  Среднее: {int(avg)}ms")
-
         for e in reversed(entries[-100:]):
             row = ctk.CTkFrame(self.net_container, fg_color=Palette.BG_PANEL,
                                 corner_radius=8, border_width=1, border_color=Palette.BORDER)
             row.pack(fill="x", padx=4, pady=3)
             inner = ctk.CTkFrame(row, fg_color="transparent")
             inner.pack(fill="x", padx=14, pady=8)
-
             ts = datetime.fromtimestamp(e["ts"]).strftime("%H:%M:%S")
             method = e["method"]
             status = e.get("status", 0)
             duration = e.get("duration_ms", 0)
             url = e["url"]
             error = e.get("error")
-
             if error or status >= 400:
                 icon, color = "❌", Palette.ERROR
             elif 200 <= status < 300:
                 icon, color = "✅", Palette.SUCCESS
             else:
                 icon, color = "⚠️", Palette.WARNING
-
             top = ctk.CTkFrame(inner, fg_color="transparent")
             top.pack(fill="x")
-
             ctk.CTkLabel(top, text=f"{icon}  {ts}  {method}",
                           font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
                           text_color=color).pack(side="left")
-
             ctk.CTkLabel(top, text=f"{status}  •  {duration}ms",
                           font=ctk.CTkFont(family="Consolas", size=11),
                           text_color=Palette.TEXT_DIM2).pack(side="right")
-
             ctk.CTkLabel(inner, text=url, anchor="w",
                           font=ctk.CTkFont(family="Consolas", size=11),
                           text_color=Palette.TEXT_DIM).pack(fill="x", pady=(4, 0))
-
             if error:
                 ctk.CTkLabel(inner, text=f"→ {error}", anchor="w",
                               font=ctk.CTkFont(family="Consolas", size=10),
