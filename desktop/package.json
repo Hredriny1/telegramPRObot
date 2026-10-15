@@ -1,0 +1,30 @@
+{
+  "name": "telegrampro-desktop",
+  "version": "0.1.0",
+  "description": "Desktop app to send commands to TelegramPRObot via SITE API.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.hredriny.telegrampro",
+    "productName": "TelegramPRO Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*"
+    ],
+    "win": {
+      "target": ["portable"]
+    }
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.12"
+  },
+  "devDependencies": {
+    "electron": "^25.3.1",
+    "electron-builder": "^24.6.0"
+  }
+}
