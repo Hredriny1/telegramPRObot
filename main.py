@@ -39,7 +39,6 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = "openai/gpt-oss-120b"
 
-# 🔐 ТОКЕН ВШИТ В КОД (тот же самый должен быть в apppk/app.py)
 APP_TOKEN = "871410danil"
 
 if not BOT_TOKEN:
@@ -59,8 +58,7 @@ logger.info("=" * 70)
 logger.info("🤖 Запуск Telegram бота")
 logger.info("OWNER_ID: %s", OWNER_ID)
 logger.info("SITE_API_URL: %s", SITE_API_URL if SITE_API_URL else "не задан")
-logger.info("GROQ_API_KEY: %s", "установлен" if GROQ_API_KEY else "❌ НЕ УСТАНОВЛЕН")
-logger.info("APP_TOKEN (вшит): %r", APP_TOKEN)
+logger.info("APP_TOKEN: %s", APP_TOKEN)
 logger.info("=" * 70)
 
 # ============================================================
@@ -81,11 +79,22 @@ TRACE_BUFFER = {}
 
 BOT_PAUSED = False
 
+# ============================================================
+# ТЕХ. РАБОТЫ
+# ============================================================
+MAINTENANCE = False
+MAINTENANCE_MESSAGE = "🔧 Бот на технических работах. Скоро вернёмся!"
+MAINTENANCE_UNTIL = 0
+
 BAD_WORDS = [
     "бля", "блядь", "блять", "сука", "хуй", "хуя", "пизда", "ебал", "ебать",
     "мудак", "пидор", "шлюха", "тварь", "дебил", "идиот", "кретин", "даун",
     "чмо", "уёбок", "дрочь", "манда",
 ]
+
+# ============================================================
+# УТИЛИТЫ
+# ============================================================
 
 def store_message(chat_id, message_id, text, sender_id):
     key = (chat_id, message_id)
@@ -139,21 +148,94 @@ def parse_command(text):
     arg = parts[1].strip() if len(parts) > 1 else ""
     return cmd, arg, to_dm
 
-def add_trace_step(request_id: str, step: str):
+def add_trace_step(request_id, step):
     if not request_id:
         return
     if request_id not in TRACE_BUFFER:
         TRACE_BUFFER[request_id] = []
-    TRACE_BUFFER[request_id].append({
-        "step": step,
-        "timestamp": int(time.time() * 1000),
-    })
+    TRACE_BUFFER[request_id].append({"step": step, "timestamp": int(time.time() * 1000)})
     while len(TRACE_BUFFER) > 100:
         oldest = next(iter(TRACE_BUFFER))
         del TRACE_BUFFER[oldest]
 
 # ============================================================
-# API ДЛЯ САЙТА (старое, не трогаем)
+# ТЕХ. РАБОТЫ - ФУНКЦИИ
+# ============================================================
+
+def parse_duration(s):
+    """Парсит '1h30m' / '30s' / '5m' / '2h' → секунды."""
+    if not s:
+        return 0
+    s = s.strip().lower()
+    pattern = r'(\d+)\s*([hms])'
+    matches = re.findall(pattern, s)
+    if not matches:
+        if s.isdigit():
+            return int(s) * 60
+        return 0
+    total = 0
+    for value, unit in matches:
+        v = int(value)
+        if unit == "h":
+            total += v * 3600
+        elif unit == "m":
+            total += v * 60
+        elif unit == "s":
+            total += v
+    return total
+
+
+def format_duration(seconds):
+    """Секунды → '1h 30m' / '5m' / '30s'."""
+    if seconds <= 0:
+        return "0s"
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}m")
+    if s and not h:
+        parts.append(f"{s}s")
+    return " ".join(parts) if parts else "0s"
+
+
+def is_maintenance():
+    global MAINTENANCE, MAINTENANCE_UNTIL
+    if not MAINTENANCE:
+        return False
+    if MAINTENANCE_UNTIL and time.time() > MAINTENANCE_UNTIL:
+        MAINTENANCE = False
+        MAINTENANCE_UNTIL = 0
+        logger.info("✅ Тех. работы завершены (по таймеру)")
+        return False
+    return True
+
+
+def set_maintenance(enabled, duration_seconds=0, message=None):
+    global MAINTENANCE, MAINTENANCE_UNTIL, MAINTENANCE_MESSAGE
+    MAINTENANCE = enabled
+    if message:
+        MAINTENANCE_MESSAGE = message
+    if enabled and duration_seconds > 0:
+        MAINTENANCE_UNTIL = int(time.time()) + duration_seconds
+    else:
+        MAINTENANCE_UNTIL = 0
+    if enabled:
+        until_str = datetime.fromtimestamp(MAINTENANCE_UNTIL).strftime("%H:%M:%S") if MAINTENANCE_UNTIL else "бессрочно"
+        logger.info("🔧 Тех. работы ВКЛючены (до %s)", until_str)
+    else:
+        logger.info("✅ Тех. работы ВЫКЛючены")
+
+
+def maintenance_remaining():
+    if not MAINTENANCE or not MAINTENANCE_UNTIL:
+        return 0
+    return max(0, MAINTENANCE_UNTIL - int(time.time()))
+
+# ============================================================
+# API ДЛЯ САЙТА
 # ============================================================
 
 async def api_check_ban(user_id=None, username=None):
@@ -238,33 +320,11 @@ async def api_send_heartbeat(ping=None, healthcheck_ok=True, api_ping=None, site
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{SITE_API_URL}/bot",
                 headers={"Content-Type": "application/json"},
-                json={
-                    "action": "heartbeat",
-                    "data": {
-                        "ping": ping,
-                        "healthcheck_ok": healthcheck_ok,
-                        "api_ping": api_ping,
-                        "site_ping": site_ping,
-                        "last_heartbeat": int(time.time() * 1000),
-                    }
-                },
+                json={"action": "heartbeat", "data": {"ping": ping, "healthcheck_ok": healthcheck_ok, "api_ping": api_ping, "site_ping": site_ping, "last_heartbeat": int(time.time() * 1000)}},
                 timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 pass
     except Exception as e:
         logger.warning("⚠️ heartbeat error: %s", e)
-
-async def api_send_alert(alert_type: str, message: str):
-    if not SITE_API_URL:
-        return
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{SITE_API_URL}/alerts",
-                headers={"Content-Type": "application/json", "X-Admin-Password": ADMIN_PASSWORD},
-                json={"type": alert_type, "message": message, "timestamp": int(time.time() * 1000)},
-                timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                pass
-    except Exception:
-        pass
 
 async def api_get_pending_command():
     if not SITE_API_URL:
@@ -294,7 +354,7 @@ async def api_set_command_result(result, status="ok"):
     except Exception:
         pass
 
-async def api_send_trace(request_id: str, trace_data: list):
+async def api_send_trace(request_id, trace_data):
     if not SITE_API_URL:
         return
     try:
@@ -311,7 +371,7 @@ async def api_send_trace(request_id: str, trace_data: list):
 # HEARTBEAT
 # ============================================================
 
-async def heartbeat_task(bot: Bot):
+async def heartbeat_task(bot):
     last_alert_time = 0
     consecutive_failures = 0
     while True:
@@ -319,7 +379,6 @@ async def heartbeat_task(bot: Bot):
             start = time.time()
             await bot.get_me()
             api_ping = int((time.time() - start) * 1000)
-
             site_ping = None
             if SITE_API_URL:
                 try:
@@ -332,36 +391,21 @@ async def heartbeat_task(bot: Bot):
                     site_ping = int((time.time() - start) * 1000)
                 except Exception:
                     site_ping = -1
-
             healthcheck_ok = api_ping < 3000 and (site_ping is None or site_ping < 3000)
-
             if healthcheck_ok:
                 consecutive_failures = 0
             else:
                 consecutive_failures += 1
-
-            await api_send_heartbeat(
-                ping=api_ping,
-                healthcheck_ok=healthcheck_ok,
-                api_ping=api_ping,
-                site_ping=site_ping,
-            )
-
-            if consecutive_failures >= 2 and time.time() - last_alert_time > 600:
-                await api_send_alert(
-                    "degradation",
-                    f"⚠️ Бот деградирует: API ping {api_ping}ms, Site ping {site_ping}ms"
-                )
-                last_alert_time = time.time()
+            await api_send_heartbeat(ping=api_ping, healthcheck_ok=healthcheck_ok, api_ping=api_ping, site_ping=site_ping)
         except Exception as e:
             logger.warning("⚠️ heartbeat: %s", e)
         await asyncio.sleep(30)
 
 # ============================================================
-# POLL КОМАНД (старое, для сайта)
+# POLL КОМАНД
 # ============================================================
 
-async def command_poll_task(bot: Bot):
+async def command_poll_task(bot):
     while True:
         try:
             cmd = await api_get_pending_command()
@@ -373,15 +417,12 @@ async def command_poll_task(bot: Bot):
             logger.error("❌ command_poll: %s", e)
         await asyncio.sleep(30)
 
-async def execute_site_command(cmd: str, bot: Bot) -> str:
+async def execute_site_command(cmd, bot):
     cmd = cmd.strip()
     if not cmd:
         return "❌ Пустая команда"
-
-    # Убираем точку, если она есть (для совместимости)
     if cmd.startswith("."):
         cmd = cmd[1:]
-
     parts = cmd.split(maxsplit=1)
     command = parts[0].lower()
     arg = parts[1] if len(parts) > 1 else ""
@@ -395,7 +436,6 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
                 api_ping = int((time.time() - start) * 1000)
             except Exception:
                 api_ping = -1
-
             tcp_ping = -1
             try:
                 start = time.time()
@@ -405,21 +445,13 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
                 await writer.wait_closed()
             except Exception:
                 tcp_ping = -1
-
             try:
                 bot_info = await bot.get_me()
                 bot_username = f"@{bot_info.username}"
             except Exception:
                 bot_username = "неизвестно"
-
             status = "online" if api_ping >= 0 else "offline"
-
-            return (
-                f"API: {api_ping}ms\n"
-                f"TCP: {tcp_ping}ms\n"
-                f"Status: {status}\n"
-                f"User: {bot_username}"
-            )
+            return f"API: {api_ping}ms\nTCP: {tcp_ping}ms\nStatus: {status}\nUser: {bot_username}"
 
         elif command == "ban":
             p = arg.split(maxsplit=2)
@@ -485,10 +517,7 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
                         break
             ban = await api_check_ban(user_id=tid, username=t)
             if ban:
-                return (f"🔰 В бане\n"
-                        f"ID: {ban.get('id')}\n"
-                        f"Time: {ban.get('time')}\n"
-                        f"Reason: {ban.get('reason')}")
+                return f"🔰 В бане\nID: {ban.get('id')}\nTime: {ban.get('time')}\nReason: {ban.get('reason')}"
             return f"🔰 Не в бане (ID: {tid or t})"
 
         elif command == "ai":
@@ -515,21 +544,61 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
             now = datetime.now(ZoneInfo("Europe/Moscow"))
             return f"📅 {now.strftime('%d.%m.%Y %H:%M')} MSK"
 
+        elif command in ("tex", "maintenance"):
+            parts_arg = arg.split(maxsplit=2)
+            if not parts_arg or not parts_arg[0]:
+                if is_maintenance():
+                    rem = maintenance_remaining()
+                    rem_str = format_duration(rem) if rem else "бессрочно"
+                    return f"🔧 Тех. работы ВКЛ (осталось: {rem_str})"
+                return "✅ Тех. работы ВЫКЛ"
+
+            action = parts_arg[0].lower()
+
+            if action == "on":
+                duration = 0
+                msg = None
+                if len(parts_arg) > 1:
+                    duration = parse_duration(parts_arg[1])
+                if len(parts_arg) > 2:
+                    msg = parts_arg[2]
+                set_maintenance(True, duration, msg)
+                dur_str = format_duration(duration) if duration else "бессрочно"
+                try:
+                    await bot.send_message(
+                        OWNER_ID,
+                        f"🔧 <b>Тех. работы включены</b>\n⏱ {dur_str}\n💬 {MAINTENANCE_MESSAGE}",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+                return f"✅ Тех. работы: {dur_str}"
+
+            elif action == "off":
+                set_maintenance(False)
+                try:
+                    await bot.send_message(OWNER_ID, "✅ <b>Тех. работы выключены</b>", parse_mode="HTML")
+                except Exception:
+                    pass
+                return "✅ Тех. работы выключены"
+
+            return "❌ tex on 1h | tex off | tex"
+
         elif command == "help":
             return (
-                "📖 Доступные команды:\n"
+                "📖 Команды:\n"
                 "  ping          — пинг\n"
-                "  ban ID [time] [reason] — забанить\n"
-                "  unban ID      — разбанить\n"
+                "  ban ID [time] [reason]\n"
+                "  unban ID\n"
                 "  banlist       — список банов\n"
                 "  checkban ID   — проверить бан\n"
                 "  idlist        — список пользователей\n"
                 "  ai вопрос     — спросить AI\n"
                 "  data          — текущее время\n"
-                "  help          — эта справка\n"
-                "  color N       — сменить цвет (1-5)\n"
-                "  color list    — список цветов\n"
-                "  clear         — очистить терминал"
+                "  tex on 1h     — тех. работы\n"
+                "  tex off       — выключить тех. работы\n"
+                "  tex           — статус тех. работ\n"
+                "  help          — эта справка"
             )
 
         else:
@@ -541,8 +610,19 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
 # ОСНОВНАЯ ЛОГИКА
 # ============================================================
 
-async def handle_business_message(message: Message, bot: Bot):
+async def handle_business_message(message, bot):
     if message.from_user is None:
+        return
+
+    # 🔧 Проверка тех. работ
+    if is_maintenance() and message.from_user.id != OWNER_ID:
+        try:
+            await bot.delete_business_messages(
+                business_connection_id=message.business_connection_id,
+                message_ids=[message.message_id]
+            )
+        except Exception:
+            pass
         return
 
     request_id = str(uuid.uuid4())[:8]
@@ -552,15 +632,14 @@ async def handle_business_message(message: Message, bot: Bot):
     text = message.text or ""
     bc_id = message.business_connection_id
 
-    add_trace_step(request_id, f"📥 Получено сообщение в чате {chat_id}")
-
+    add_trace_step(request_id, f"📥 Сообщение в чате {chat_id}")
     USER_DATABASE[sender_id] = {"username": message.from_user.username or "", "last_seen": time.time()}
 
     t0 = time.time()
     ban = await api_check_ban(user_id=sender_id)
     add_trace_step(request_id, f"🔍 Проверка бана ({int((time.time()-t0)*1000)}ms)")
     if ban:
-        add_trace_step(request_id, "🚫 Пользователь в бане")
+        add_trace_step(request_id, "🚫 В бане")
         asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
         return
 
@@ -586,12 +665,12 @@ async def handle_business_message(message: Message, bot: Bot):
         return
 
     if sender_id != OWNER_ID or not bc_id:
-        add_trace_step(request_id, "✅ Пропущено (не владелец)")
+        add_trace_step(request_id, "✅ Пропущено")
         asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
         return
 
     if not text.startswith("."):
-        add_trace_step(request_id, "📝 Обычное сообщение владельца")
+        add_trace_step(request_id, "📝 Сообщение владельца")
         asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
         return
 
@@ -610,58 +689,45 @@ async def handle_business_message(message: Message, bot: Bot):
         return
 
     asyncio.create_task(bot.delete_business_messages(business_connection_id=bc_id, message_ids=[message_id]))
-    add_trace_step(request_id, "🗑️ Команда удалена")
+    add_trace_step(request_id, "🗑️ Удалено")
 
     reply_chat_id = OWNER_ID if to_dm else chat_id
 
     if cmd == ".ai":
-        t0 = time.time()
         await cmd_ai(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, f"🧠 AI ответ ({int((time.time()-t0)*1000)}ms)")
     elif cmd == ".me":
         await cmd_me(message, bot, bc_id, reply_chat_id, to_dm)
-        add_trace_step(request_id, "👤 Профиль отправлен")
     elif cmd == ".ping":
         await cmd_ping(message, bot, bc_id, reply_chat_id, to_dm)
-        add_trace_step(request_id, "🏓 Ping отправлен")
     elif cmd == ".ban":
         await cmd_ban(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, "🚫 Бан обработан")
     elif cmd == ".unban":
         await cmd_unban(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, "✅ Разбан обработан")
     elif cmd == ".idlist":
         await cmd_idlist(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, "🔢 IDlist отправлен")
     elif cmd == ".checkban":
         await cmd_checkban(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, "🔰 Checkban отправлен")
     elif cmd == ".banlist":
         await cmd_banlist(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, "📋 Banlist отправлен")
     elif cmd == ".mute":
         await cmd_mute(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, "🔇 Mute обработан")
     elif cmd == ".unmute":
         await cmd_unmute(message, bot, bc_id, reply_chat_id, to_dm)
-        add_trace_step(request_id, "🔊 Unmute обработан")
     elif cmd == ".antimat":
         await cmd_antimat(message, bot, bc_id, reply_chat_id, to_dm, arg)
-        add_trace_step(request_id, "🛡 Antimat обработан")
     elif cmd == ".id":
         await cmd_id(message, bot, bc_id, reply_chat_id, to_dm)
-        add_trace_step(request_id, "🆔 ID отправлен")
     elif cmd == ".business":
         await cmd_business(message, bot, bc_id, reply_chat_id, to_dm)
-        add_trace_step(request_id, "🔗 Business отправлен")
     elif cmd == ".data":
         await cmd_data(message, bot, bc_id, reply_chat_id, to_dm)
-        add_trace_step(request_id, "📅 Data отправлен")
+    elif cmd in (".tex", ".maintenance"):
+        await cmd_maintenance(message, bot, bc_id, reply_chat_id, to_dm, arg)
 
     asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
 
 # ============================================================
-# КОМАНДЫ (для бизнес-чата)
+# КОМАНДЫ
 # ============================================================
 
 async def send_reply(bot, chat_id, text, bc_id, to_dm, parse_mode="HTML"):
@@ -714,7 +780,6 @@ async def cmd_ping(message, bot, bc_id, reply_chat_id, to_dm):
         api_ping = int((time.time() - start) * 1000)
     except Exception:
         api_ping = -1
-
     tcp_ping = -1
     try:
         start = time.time()
@@ -724,38 +789,13 @@ async def cmd_ping(message, bot, bc_id, reply_chat_id, to_dm):
         await writer.wait_closed()
     except Exception:
         tcp_ping = -1
-
-    site_ping = -1
-    if SITE_API_URL:
-        try:
-            start = time.time()
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{SITE_API_URL}/status",
-                    headers={"X-Admin-Password": ADMIN_PASSWORD},
-                    timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    pass
-            site_ping = int((time.time() - start) * 1000)
-        except Exception:
-            site_ping = -1
-
     try:
         bot_info = await bot.get_me()
         bot_username = f"@{bot_info.username}"
     except Exception:
         bot_username = "неизвестно"
-
     status = "online" if api_ping >= 0 else "offline"
-
-    txt = (
-        f"<b>🏓 Ping</b>\n"
-        f"<blockquote>"
-        f"API: {api_ping}ms\n"
-        f"TCP: {tcp_ping}ms\n"
-        f"APIS: {site_ping}ms\n"
-        f"Status: {status}\n"
-        f"User: {bot_username}"
-        f"</blockquote>"
-    )
+    txt = (f"<b>🏓 Ping</b>\n<blockquote>API: {api_ping}ms\nTCP: {tcp_ping}ms\nStatus: {status}\nUser: {bot_username}</blockquote>")
     await send_reply(bot, reply_chat_id, txt, bc_id, to_dm)
 
 async def cmd_data(message, bot, bc_id, reply_chat_id, to_dm):
@@ -823,10 +863,9 @@ async def cmd_ban(message, bot, bc_id, reply_chat_id, to_dm, arg):
 async def cmd_unban(message, bot, bc_id, reply_chat_id, to_dm, arg):
     p = arg.split(maxsplit=1)
     if not p or not p[0]:
-        await send_reply(bot, reply_chat_id, "❌ .unban (ID/username) (reason)", bc_id, to_dm)
+        await send_reply(bot, reply_chat_id, "❌ .unban (ID/username)", bc_id, to_dm)
         return
     target = p[0].lstrip("@")
-    reason = p[1] if len(p) > 1 else "не указана"
     tid = 0
     try:
         tid = int(target)
@@ -836,26 +875,16 @@ async def cmd_unban(message, bot, bc_id, reply_chat_id, to_dm, arg):
                 tid = uid
                 break
     ok = await api_remove_ban(tid, target)
-    txt = f"✅ <b>Разбанен</b>\n<blockquote>ID: {tid}\nReason: {reason}</blockquote>" if ok else "❌ Ошибка"
+    txt = f"✅ <b>Разбанен</b>\n<blockquote>ID: {tid}</blockquote>" if ok else "❌ Ошибка"
     await send_reply(bot, reply_chat_id, txt, bc_id, to_dm)
 
 async def cmd_idlist(message, bot, bc_id, reply_chat_id, to_dm, arg):
-    page = 1
-    if arg:
-        try:
-            page = max(1, min(10, int(arg)))
-        except ValueError:
-            page = 1
-    users = sorted(USER_DATABASE.items(), key=lambda x: x[1]["last_seen"], reverse=True)
-    tp = max(1, min(10, (len(users) + 4) // 5))
-    page = min(page, tp)
-    start = (page - 1) * 5
-    pu = users[start:start + 5]
-    if not pu:
-        await send_reply(bot, reply_chat_id, "📋 Пусто", bc_id, to_dm)
+    if not USER_DATABASE:
+        await send_reply(bot, reply_chat_id, "📋 Список пуст", bc_id, to_dm)
         return
-    lines = [f"{i}. ID: {uid}, @{info['username'] or 'нет'}" for i, (uid, info) in enumerate(pu, start=start + 1)]
-    await send_reply(bot, reply_chat_id, f"🔢 <b>Пользователи</b>\n<blockquote>{chr(10).join(lines)}\n\nСтр {page}/{tp}</blockquote>", bc_id, to_dm)
+    lines = [f"{i+1}. ID: {uid}, @{info['username'] or 'нет'}"
+             for i, (uid, info) in enumerate(list(USER_DATABASE.items())[:20])]
+    await send_reply(bot, reply_chat_id, "🔢 <b>Пользователи</b>\n<blockquote>" + "\n".join(lines) + "</blockquote>", bc_id, to_dm)
 
 async def cmd_checkban(message, bot, bc_id, reply_chat_id, to_dm, arg):
     if not arg:
@@ -878,28 +907,46 @@ async def cmd_checkban(message, bot, bc_id, reply_chat_id, to_dm, arg):
     await send_reply(bot, reply_chat_id, txt, bc_id, to_dm)
 
 async def cmd_banlist(message, bot, bc_id, reply_chat_id, to_dm, arg):
-    page = 1
-    if arg:
-        try:
-            page = max(1, int(arg))
-        except ValueError:
-            page = 1
     bans = await api_list_bans()
     if not bans:
         await send_reply(bot, reply_chat_id, "📋 Бан-лист пуст", bc_id, to_dm)
         return
-    tp = max(1, (len(bans) + 4) // 5)
-    page = min(page, tp)
-    pb = bans[(page - 1) * 5:page * 5]
-    lines = [f"{i}. ID: {b.get('id')}, @{b.get('username', 'нет')} ({b.get('time', 'forever')})"
-             for i, b in enumerate(pb, start=(page - 1) * 5 + 1)]
-    await send_reply(bot, reply_chat_id, f"📋 <b>Бан-лист</b>\n<blockquote>{chr(10).join(lines)}\n\nСтр {page}/{tp}</blockquote>", bc_id, to_dm)
+    lines = [f"{i+1}. ID: {b.get('id')}, @{b.get('username', 'нет')} ({b.get('time', 'forever')})"
+             for i, b in enumerate(bans[:20])]
+    await send_reply(bot, reply_chat_id, "📋 <b>Бан-лист</b>\n<blockquote>" + "\n".join(lines) + "</blockquote>", bc_id, to_dm)
+
+async def cmd_maintenance(message, bot, bc_id, reply_chat_id, to_dm, arg):
+    parts_arg = arg.split(maxsplit=2)
+    if not parts_arg or not parts_arg[0]:
+        if is_maintenance():
+            rem = maintenance_remaining()
+            rem_str = format_duration(rem) if rem else "бессрочно"
+            await send_reply(bot, reply_chat_id, f"🔧 <b>Тех. работы ВКЛ</b>\n<blockquote>Осталось: {rem_str}</blockquote>", bc_id, to_dm)
+        else:
+            await send_reply(bot, reply_chat_id, "✅ <b>Тех. работы ВЫКЛ</b>", bc_id, to_dm)
+        return
+
+    action = parts_arg[0].lower()
+    if action == "on":
+        duration = 0
+        msg = None
+        if len(parts_arg) > 1:
+            duration = parse_duration(parts_arg[1])
+        if len(parts_arg) > 2:
+            msg = parts_arg[2]
+        set_maintenance(True, duration, msg)
+        dur_str = format_duration(duration) if duration else "бессрочно"
+        await send_reply(bot, reply_chat_id, f"🔧 <b>Тех. работы включены</b>\n<blockquote>Длительность: {dur_str}</blockquote>", bc_id, to_dm)
+    elif action == "off":
+        set_maintenance(False)
+        await send_reply(bot, reply_chat_id, "✅ <b>Тех. работы выключены</b>", bc_id, to_dm)
+    else:
+        await send_reply(bot, reply_chat_id, "❌ .tex on 1h | .tex off | .tex", bc_id, to_dm)
 
 async def handle_deleted_business_messages(deleted, bot):
     cid = deleted.chat.id
     if is_muted(cid) or is_antimat(cid):
         return
-    chat = deleted.chat
     my_d, their_d = [], []
     for mid in deleted.message_ids:
         s = get_stored_message(cid, mid)
@@ -934,23 +981,18 @@ async def send_to_chat_from_ls(message, bot, target_chat_id, text):
 # ПРИВЕТСТВИЕ
 # ============================================================
 
-async def startup_greeting(bot: Bot):
-    api_status = "❌"
+async def startup_greeting(bot):
     try:
         bans = await api_list_bans()
         api_status = f"✅ ({len(bans)} банов)" if SITE_API_URL else "⚠️ не задан"
     except Exception:
         api_status = "❌"
-
-    ai_status = f"✅ Groq" if GROQ_API_KEY else "❌"
-    vt_status = "✅" if VIRUSTOTAL_API_KEY else "❌"
-
+    ai_status = "✅ Groq" if GROQ_API_KEY else "❌"
     text = (
         "🤖 <b>Бот запущен!</b>\n\n"
         "<b>Статус систем:</b>\n"
         "<blockquote>"
         f"🌐 Site API: {api_status}\n"
-        f"🛡 VirusTotal: {vt_status}\n"
         f"🧠 Groq AI: {ai_status}\n"
         f"👥 Пользователей: {len(USER_DATABASE)}\n"
         f"🆔 Owner ID: {OWNER_ID}"
@@ -962,19 +1004,19 @@ async def startup_greeting(bot: Bot):
         logger.error("❌ greeting: %s", e)
 
 # ============================================================
-# HTTP API ДЛЯ ПРИЛОЖЕНИЯ (под /webhook)
+# HTTP API ДЛЯ ПРИЛОЖЕНИЯ
 # ============================================================
 
-bot: Bot = None
+bot = None
 
 @aiohttp_web.middleware
 async def api_auth_middleware(request, handler):
     if request.path.startswith("/webhook/api/"):
         token = request.headers.get("X-App-Token")
-        logger.info("🔐 AUTH path=%s got=%r expected=%r", request.path, token, APP_TOKEN)
         if token != APP_TOKEN:
             return aiohttp_web.json_response({"error": "unauthorized"}, status=401)
     return await handler(request)
+
 
 async def api_ping_handler(request):
     start = time.time()
@@ -983,7 +1025,6 @@ async def api_ping_handler(request):
         api_ping_ms = int((time.time() - start) * 1000)
     except Exception:
         api_ping_ms = -1
-
     tcp_ping = -1
     try:
         start = time.time()
@@ -993,40 +1034,42 @@ async def api_ping_handler(request):
         await writer.wait_closed()
     except Exception:
         pass
-
     return aiohttp_web.json_response({
-        "api_ping": api_ping_ms,
-        "tcp_ping": tcp_ping,
+        "api_ping": api_ping_ms, "tcp_ping": tcp_ping,
         "status": "online" if api_ping_ms >= 0 else "offline",
         "paused": BOT_PAUSED,
     })
+
 
 async def api_status_handler(request):
     return aiohttp_web.json_response({
         "online": True,
         "paused": BOT_PAUSED,
+        "maintenance": is_maintenance(),
+        "maintenance_until": MAINTENANCE_UNTIL,
+        "maintenance_remaining": maintenance_remaining(),
+        "maintenance_message": MAINTENANCE_MESSAGE,
         "users_count": len(USER_DATABASE),
         "bans_count": len(BAN_CACHE),
         "uptime": int(time.time()),
     })
 
+
 async def api_pause_handler(request):
     global BOT_PAUSED
     BOT_PAUSED = True
-    logger.info("⏸ Бот на паузе (через API)")
     return aiohttp_web.json_response({"ok": True, "paused": True})
+
 
 async def api_resume_handler(request):
     global BOT_PAUSED
     BOT_PAUSED = False
-    logger.info("▶ Бот возобновлён (через API)")
     return aiohttp_web.json_response({"ok": True, "paused": False})
+
 
 async def api_command_handler(request):
     if BOT_PAUSED:
-        return aiohttp_web.json_response(
-            {"error": "Бот на паузе. Нажмите «Возобновить»."}, status=423
-        )
+        return aiohttp_web.json_response({"error": "Бот на паузе"}, status=423)
     try:
         data = await request.json()
         cmd = data.get("command", "").strip()
@@ -1037,49 +1080,36 @@ async def api_command_handler(request):
     except Exception as e:
         return aiohttp_web.json_response({"error": str(e)}, status=500)
 
-async def api_banlist_handler(request):
-    bans = await api_list_bans()
-    return aiohttp_web.json_response({"bans": bans})
 
-async def api_ban_handler(request):
+async def api_maintenance_handler(request):
     try:
         data = await request.json()
-        user_id = data.get("user_id")
-        time_str = data.get("time", "forever")
-        reason = data.get("reason", "не указана")
-        if not user_id:
-            return aiohttp_web.json_response({"error": "Нет user_id"}, status=400)
-        ok = await api_add_ban(user_id, str(user_id), time_str, reason)
-        return aiohttp_web.json_response({"ok": ok})
+        enabled = data.get("enabled", False)
+        duration = data.get("duration", 0)
+        message = data.get("message")
+        set_maintenance(enabled, duration, message)
+        return aiohttp_web.json_response({
+            "ok": True,
+            "maintenance": is_maintenance(),
+            "until": MAINTENANCE_UNTIL,
+            "remaining": maintenance_remaining(),
+        })
     except Exception as e:
         return aiohttp_web.json_response({"error": str(e)}, status=500)
 
-async def api_unban_handler(request):
-    try:
-        data = await request.json()
-        user_id = data.get("user_id")
-        if not user_id:
-            return aiohttp_web.json_response({"error": "Нет user_id"}, status=400)
-        ok = await api_remove_ban(user_id, str(user_id))
-        return aiohttp_web.json_response({"ok": ok})
-    except Exception as e:
-        return aiohttp_web.json_response({"error": str(e)}, status=500)
 
 async def api_root_handler(request):
     return aiohttp_web.json_response({"status": "ok", "service": "RedSave API"})
 
+
 async def start_http_api():
     app = aiohttp_web.Application(middlewares=[api_auth_middleware])
-
     app.router.add_post("/webhook/api/ping", api_ping_handler)
     app.router.add_post("/webhook/api/status", api_status_handler)
     app.router.add_post("/webhook/api/command", api_command_handler)
     app.router.add_post("/webhook/api/pause", api_pause_handler)
     app.router.add_post("/webhook/api/resume", api_resume_handler)
-    app.router.add_post("/webhook/api/banlist", api_banlist_handler)
-    app.router.add_post("/webhook/api/ban", api_ban_handler)
-    app.router.add_post("/webhook/api/unban", api_unban_handler)
-
+    app.router.add_post("/webhook/api/maintenance", api_maintenance_handler)
     app.router.add_get("/webhook", api_root_handler)
     app.router.add_post("/webhook", api_root_handler)
 
@@ -1088,7 +1118,24 @@ async def start_http_api():
     await runner.setup()
     site = aiohttp_web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info(f"🌐 HTTP API запущен на 0.0.0.0:{port} (пути: /webhook/api/*)")
+    logger.info(f"🌐 HTTP API запущен на 0.0.0.0:{port}")
+
+
+async def maintenance_watchdog(bot_instance):
+    was_active = False
+    while True:
+        try:
+            active = is_maintenance()
+            if active != was_active:
+                was_active = active
+                status = "🔧 <b>Тех. работы ВКЛючены</b>" if active else "✅ <b>Тех. работы ВЫКЛючены</b>"
+                try:
+                    await bot_instance.send_message(OWNER_ID, status, parse_mode="HTML")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error("maintenance_watchdog: %s", e)
+        await asyncio.sleep(30)
 
 # ============================================================
 # ЗАПУСК
@@ -1124,6 +1171,7 @@ async def main():
     asyncio.create_task(heartbeat_task(bot))
     asyncio.create_task(command_poll_task(bot))
     asyncio.create_task(start_http_api())
+    asyncio.create_task(maintenance_watchdog(bot))
 
     logger.info("🚀 Запуск polling...")
     try:
