@@ -72,7 +72,7 @@ LAST_BUSINESS_CONNECTION_ID = None
 USER_DATABASE = {}
 BAN_CACHE = {}
 BAN_CACHE_TTL = 60
-TRACE_BUFFER = {}  # request_id -> list of steps (последние 100)
+TRACE_BUFFER = {}
 
 BAD_WORDS = [
     "бля", "блядь", "блять", "сука", "хуй", "хуя", "пизда", "ебал", "ебать",
@@ -132,12 +132,7 @@ def parse_command(text):
     arg = parts[1].strip() if len(parts) > 1 else ""
     return cmd, arg, to_dm
 
-# ============================================================
-# ТРАССИРОВКА
-# ============================================================
-
 def add_trace_step(request_id: str, step: str):
-    """Добавляет шаг в трассировку запроса."""
     if not request_id:
         return
     if request_id not in TRACE_BUFFER:
@@ -146,7 +141,6 @@ def add_trace_step(request_id: str, step: str):
         "step": step,
         "timestamp": int(time.time() * 1000),
     })
-    # Ограничиваем буфер
     while len(TRACE_BUFFER) > 100:
         oldest = next(iter(TRACE_BUFFER))
         del TRACE_BUFFER[oldest]
@@ -231,7 +225,6 @@ async def api_list_bans():
         return []
 
 async def api_send_heartbeat(ping=None, healthcheck_ok=True, api_ping=None, site_ping=None):
-    """Отправляет heartbeat с полным статусом здоровья."""
     if not SITE_API_URL:
         return
     try:
@@ -251,10 +244,9 @@ async def api_send_heartbeat(ping=None, healthcheck_ok=True, api_ping=None, site
                 timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 pass
     except Exception as e:
-        logger.warning("⚠️ heartbeat: %s", e)
+        logger.warning("⚠️ heartbeat error: %s", e)
 
 async def api_send_alert(alert_type: str, message: str):
-    """Отправляет алерт на сайт (сайт решит, куда его переслать)."""
     if not SITE_API_URL:
         return
     try:
@@ -296,7 +288,6 @@ async def api_set_command_result(result, status="ok"):
         pass
 
 async def api_send_trace(request_id: str, trace_data: list):
-    """Отправляет трассировку на сайт."""
     if not SITE_API_URL:
         return
     try:
@@ -314,18 +305,14 @@ async def api_send_trace(request_id: str, trace_data: list):
 # ============================================================
 
 async def heartbeat_task(bot: Bot):
-    """Каждые 30 секунд: heartbeat + healthcheck + проверка алертов."""
     last_alert_time = 0
     consecutive_failures = 0
-
     while True:
         try:
-            # 1. API ping
             start = time.time()
             await bot.get_me()
             api_ping = int((time.time() - start) * 1000)
 
-            # 2. Site ping
             site_ping = None
             if SITE_API_URL:
                 try:
@@ -346,7 +333,6 @@ async def heartbeat_task(bot: Bot):
             else:
                 consecutive_failures += 1
 
-            # 3. Отправляем heartbeat
             await api_send_heartbeat(
                 ping=api_ping,
                 healthcheck_ok=healthcheck_ok,
@@ -354,17 +340,14 @@ async def heartbeat_task(bot: Bot):
                 site_ping=site_ping,
             )
 
-            # 4. Алерт при деградации
             if consecutive_failures >= 2 and time.time() - last_alert_time > 600:
                 await api_send_alert(
                     "degradation",
                     f"⚠️ Бот деградирует: API ping {api_ping}ms, Site ping {site_ping}ms"
                 )
                 last_alert_time = time.time()
-
         except Exception as e:
-            logger.warning("⚠️ heartbeat error: %s", e)
-
+            logger.warning("⚠️ heartbeat: %s", e)
         await asyncio.sleep(30)
 
 # ============================================================
@@ -394,10 +377,52 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
 
     try:
         if command == ".ping":
-            start = time.time()
-            await bot.get_me()
-            ping = int((time.time() - start) * 1000)
-            return f"✅ Ping API: {ping}ms"
+            api_ping = 0
+            try:
+                start = time.time()
+                await bot.get_me()
+                api_ping = int((time.time() - start) * 1000)
+            except Exception:
+                api_ping = -1
+
+            tcp_ping = -1
+            try:
+                start = time.time()
+                reader, writer = await asyncio.open_connection("api.telegram.org", 443)
+                tcp_ping = int((time.time() - start) * 1000)
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                tcp_ping = -1
+
+            site_ping = -1
+            if SITE_API_URL:
+                try:
+                    start = time.time()
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"{SITE_API_URL}/status",
+                            headers={"X-Admin-Password": ADMIN_PASSWORD},
+                            timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            pass
+                    site_ping = int((time.time() - start) * 1000)
+                except Exception:
+                    site_ping = -1
+
+            try:
+                bot_info = await bot.get_me()
+                bot_username = f"@{bot_info.username}"
+            except Exception:
+                bot_username = "неизвестно"
+
+            status = "online" if api_ping >= 0 else "offline"
+
+            return (
+                f"API: {api_ping}ms\n"
+                f"TCP: {tcp_ping}ms\n"
+                f"APIS: {site_ping}ms\n"
+                f"Status: {status}\n"
+                f"User: {bot_username}"
+            )
 
         elif command == ".ban":
             p = arg.split(maxsplit=2)
@@ -447,20 +472,6 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
                      for i, (uid, info) in enumerate(list(USER_DATABASE.items())[:20])]
             return "🔢 Пользователи:\n" + "\n".join(lines)
 
-        elif command == ".mute":
-            m = None
-            if arg:
-                try:
-                    m = int(arg)
-                except ValueError:
-                    pass
-            if m:
-                return f"✅ Мут на {m} мин. (применяется через бота в чате)"
-            return "✅ Мут бессрочный (применяется через бота в чате)"
-
-        elif command == ".unmute":
-            return "✅ Мут выключен (применяется через бота в чате)"
-
         elif command == ".ai":
             if not arg:
                 return "❌ .ai (вопрос)"
@@ -482,8 +493,7 @@ async def execute_site_command(cmd: str, bot: Bot) -> str:
                 return f"❌ Ошибка: {e}"
 
         else:
-            return f"❌ Команда {command} не поддерживается из консоли"
-
+            return f"❌ Команда {command} не поддерживается"
     except Exception as e:
         return f"❌ Ошибка: {e}"
 
@@ -506,7 +516,6 @@ async def handle_business_message(message: Message, bot: Bot):
 
     USER_DATABASE[sender_id] = {"username": message.from_user.username or "", "last_seen": time.time()}
 
-    # Проверка бана
     t0 = time.time()
     ban = await api_check_ban(user_id=sender_id)
     add_trace_step(request_id, f"🔍 Проверка бана ({int((time.time()-t0)*1000)}ms)")
@@ -518,7 +527,6 @@ async def handle_business_message(message: Message, bot: Bot):
     if text:
         store_message(chat_id, message_id, text, sender_id)
 
-    # Антимат
     if is_antimat(chat_id) and sender_id != OWNER_ID and text and contains_bad_words(text):
         try:
             await bot.delete_business_messages(business_connection_id=bc_id, message_ids=[message_id])
@@ -528,7 +536,6 @@ async def handle_business_message(message: Message, bot: Bot):
         asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
         return
 
-    # Мут
     if is_muted(chat_id) and sender_id != OWNER_ID:
         try:
             await bot.delete_business_messages(business_connection_id=bc_id, message_ids=[message_id])
@@ -538,7 +545,6 @@ async def handle_business_message(message: Message, bot: Bot):
         asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
         return
 
-    # Только от владельца
     if sender_id != OWNER_ID or not bc_id:
         add_trace_step(request_id, "✅ Пропущено (не владелец)")
         asyncio.create_task(api_send_trace(request_id, TRACE_BUFFER.get(request_id, [])))
@@ -661,9 +667,23 @@ async def cmd_id(message, bot, bc_id, reply_chat_id, to_dm):
         bc_id, to_dm)
 
 async def cmd_ping(message, bot, bc_id, reply_chat_id, to_dm):
-    start = time.time()
-    await bot.get_me()
-    api_ping = int((time.time() - start) * 1000)
+    api_ping = 0
+    try:
+        start = time.time()
+        await bot.get_me()
+        api_ping = int((time.time() - start) * 1000)
+    except Exception:
+        api_ping = -1
+
+    tcp_ping = -1
+    try:
+        start = time.time()
+        reader, writer = await asyncio.open_connection("api.telegram.org", 443)
+        tcp_ping = int((time.time() - start) * 1000)
+        writer.close()
+        await writer.wait_closed()
+    except Exception:
+        tcp_ping = -1
 
     site_ping = -1
     if SITE_API_URL:
@@ -678,11 +698,22 @@ async def cmd_ping(message, bot, bc_id, reply_chat_id, to_dm):
         except Exception:
             site_ping = -1
 
+    try:
+        bot_info = await bot.get_me()
+        bot_username = f"@{bot_info.username}"
+    except Exception:
+        bot_username = "неизвестно"
+
+    status = "online" if api_ping >= 0 else "offline"
+
     txt = (
         f"<b>🏓 Ping</b>\n"
         f"<blockquote>"
-        f"TG API: {api_ping}ms\n"
-        f"Site API: {site_ping}ms"
+        f"API: {api_ping}ms\n"
+        f"TCP: {tcp_ping}ms\n"
+        f"APIS: {site_ping}ms\n"
+        f"Status: {status}\n"
+        f"User: {bot_username}"
         f"</blockquote>"
     )
     await send_reply(bot, reply_chat_id, txt, bc_id, to_dm)
@@ -883,12 +914,6 @@ async def startup_greeting(bot: Bot):
         f"🧠 Groq AI: {ai_status}\n"
         f"👥 Пользователей: {len(USER_DATABASE)}\n"
         f"🆔 Owner ID: {OWNER_ID}"
-        "</blockquote>\n\n"
-        "<b>Мониторинг:</b>\n"
-        "<blockquote>"
-        "✅ Healthcheck каждые 30 сек\n"
-        "✅ Алерты при деградации\n"
-        "✅ Трассировка запросов"
         "</blockquote>"
     )
     try:
@@ -926,7 +951,6 @@ async def main():
 
     await startup_greeting(bot)
 
-    # Фоновые таски
     asyncio.create_task(heartbeat_task(bot))
     asyncio.create_task(command_poll_task(bot))
 
