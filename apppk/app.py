@@ -12,10 +12,10 @@ import tkinter as tk
 from datetime import datetime
 
 # ============================================================
-# КОНФИГ (Логика не изменена)
+# КОНФИГ
 # ============================================================
 API_URL = "https://telegramprobot.relaxdev.ru/webhook"
-APP_TOKEN = "871410danil" # ⚠️ Внимание: токен виден в коде. Для продакшена лучше использовать .env
+APP_TOKEN = "871410danil"
 APP_VERSION = "5.0.0-ultra"
 
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".redsave_config.json")
@@ -26,7 +26,7 @@ COLOR_THEMES = {
     2: ("#0a1f0a", "#33ff33", "#1a5c1a", "Зелёный"),
     3: ("#1f0a0a", "#ff4d4d", "#8f2a2a", "Красный"),
     4: ("#1f1400", "#ffa64d", "#8f5a2a", "Оранжевый"),
-    5: ("#09090b", "#8b5cf6", "#3f3f46", "Obsidian"), # Обновлен на современный темный
+    5: ("#09090b", "#8b5cf6", "#3f3f46", "Obsidian"),
     6: ("#1a0a1f", "#c44dff", "#7a2a8f", "Фиолетовый"),
     7: ("#001a1a", "#4dffff", "#2a8f8f", "Бирюзовый"),
     8: ("#1a1a00", "#ffff4d", "#8f8f2a", "Жёлтый"),
@@ -45,7 +45,7 @@ FORTUNES = [
 ]
 
 # ============================================================
-# УТИЛИТЫ (Логика не изменена)
+# УТИЛИТЫ
 # ============================================================
 def parse_duration(s):
     if not s: return 0
@@ -72,34 +72,34 @@ def format_duration(seconds):
     return " ".join(parts) if parts else "0s"
 
 # ============================================================
-# ПАЛИТРА (Обновлена на современную "Zinc/Violet" тему)
+# ПАЛИТРА
 # ============================================================
 class Palette:
-    BG_DARK = "#09090b"       # Zinc 950
-    BG_PANEL = "#18181b"      # Zinc 900
-    BG_CARD = "#27272a"       # Zinc 800
-    BG_CARD_HOVER = "#3f3f46" # Zinc 700
+    BG_DARK = "#09090b"
+    BG_PANEL = "#18181b"
+    BG_CARD = "#27272a"
+    BG_CARD_HOVER = "#3f3f46"
     BG_INPUT = "#18181b"
     BORDER = "#3f3f46"
     BORDER_LIGHT = "#52525b"
-    TEXT = "#fafafa"          # Zinc 50
-    TEXT_DIM = "#a1a1aa"      # Zinc 400
-    TEXT_DIM2 = "#71717a"     # Zinc 500
-    ACCENT = "#8b5cf6"        # Violet 500
-    ACCENT_HOVER = "#7c3aed"  # Violet 600
-    ACCENT_GLOW = "#a78bfa"   # Violet 400
-    SUCCESS = "#10b981"       # Emerald 500
-    SUCCESS_GLOW = "#34d399"  # Emerald 400
-    ERROR = "#ef4444"         # Red 500
-    ERROR_GLOW = "#f87171"    # Red 400
-    WARNING = "#f59e0b"       # Amber 500
-    WARNING_GLOW = "#fbbf24"  # Amber 400
-    INFO = "#3b82f6"          # Blue 500
-    CYAN = "#06b6d4"          # Cyan 500
-    PINK = "#ec4899"          # Pink 500
+    TEXT = "#fafafa"
+    TEXT_DIM = "#a1a1aa"
+    TEXT_DIM2 = "#71717a"
+    ACCENT = "#8b5cf6"
+    ACCENT_HOVER = "#7c3aed"
+    ACCENT_GLOW = "#a78bfa"
+    SUCCESS = "#10b981"
+    SUCCESS_GLOW = "#34d399"
+    ERROR = "#ef4444"
+    ERROR_GLOW = "#f87171"
+    WARNING = "#f59e0b"
+    WARNING_GLOW = "#fbbf24"
+    INFO = "#3b82f6"
+    CYAN = "#06b6d4"
+    PINK = "#ec4899"
 
 # ============================================================
-# NETWORK MONITOR (Логика не изменена)
+# NETWORK MONITOR
 # ============================================================
 class NetworkMonitor:
     def __init__(self, limit=300):
@@ -125,11 +125,11 @@ class NetworkMonitor:
 NET_MONITOR = NetworkMonitor(limit=300)
 
 # ============================================================
-# КОНФИГ / ИСТОРИЯ (Логика не изменена)
+# КОНФИГ / ИСТОРИЯ
 # ============================================================
 def load_config():
     defaults = {"color": 5, "font_size": 13, "sound": True, "lang": "ru",
-                "window_geometry": "1280x820", "aliases": {}} # Чуть увеличил дефолтный размер окна
+                "window_geometry": "1280x820", "aliases": {}}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -168,7 +168,7 @@ def play_sound(kind="ok", enabled=True):
     except Exception: pass
 
 # ============================================================
-# API КЛИЕНТ (Логика не изменена)
+# API КЛИЕНТ
 # ============================================================
 class BotAPI:
     def __init__(self, base_url, token):
@@ -216,7 +216,7 @@ class BotAPI:
     def resume(self): return self._post("resume")
 
 # ============================================================
-# ВИЗУАЛЬНЫЕ КОМПОНЕНТЫ (Улучшена эстетика, логика та же)
+# ВИЗУАЛЬНЫЕ КОМПОНЕНТЫ
 # ============================================================
 class AnimatedDot(tk.Canvas):
     def __init__(self, parent, color=Palette.SUCCESS, size=14, bg=Palette.BG_CARD):
@@ -263,14 +263,10 @@ class StatusRing(tk.Canvas):
             color = colors.get(self.state, Palette.TEXT_DIM2)
             self.pulse = (self.pulse + 1) % 60
             ring_r = r + 2 * math.sin(self.pulse / 60 * 2 * math.pi)
-            
-            # Внешнее свечение
             self.create_oval(cx - ring_r - 2, cy - ring_r - 2, cx + ring_r + 2, cy + ring_r + 2,
                              outline=color, width=1, stipple="gray50")
-            # Основное кольцо
             self.create_oval(cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r,
                              outline=color, width=3, fill="")
-            # Центральная точка
             r2 = 6
             self.create_oval(cx - r2, cy - r2, cx + r2, cy + r2, fill=color, outline="")
         except Exception: pass
@@ -316,23 +312,19 @@ class MaintenanceBadge(tk.Canvas):
             pill_w = min(w, circle_w + text_w + 16)
             r = pill_h / 2
 
-            # Фон таблетки
             self.create_oval(pad, pad, pad + pill_h, h - pad, fill=Palette.BG_CARD, outline="")
             self.create_oval(pill_w - pad - pill_h, pad, pill_w - pad, h - pad, fill=Palette.BG_CARD, outline="")
             self.create_rectangle(pad + r, pad, pill_w - pad - r, h - pad, fill=Palette.BG_CARD, outline="")
 
-            # Обводка
             self.create_arc(pad, pad, pad + pill_h, h - pad, start=90, extent=180, outline=Palette.BORDER, style="arc", width=1)
             self.create_arc(pill_w - pad - pill_h, pad, pill_w - pad, h - pad, start=270, extent=180, outline=Palette.BORDER, style="arc", width=1)
             self.create_line(pad + r, pad, pill_w - pad - r, pad, fill=Palette.BORDER)
             self.create_line(pad + r, h - pad, pill_w - pad - r, h - pad, fill=Palette.BORDER)
 
-            # Свечение если активно
             if self.active:
                 gx = pad + r
                 self.create_oval(gx - r - 3, cy - r - 3, gx + r + 3, cy + r + 3, fill="", outline=glow, width=2)
 
-            # Иконка
             cx = pad + r
             cr = r - 3
             self.create_oval(cx - cr, cy - cr, cx + cr, cy + cr, fill=color, outline="")
@@ -346,7 +338,6 @@ class MaintenanceBadge(tk.Canvas):
                 self.create_line(cx - k, cy, cx - k * 0.15, cy + k * 0.75, fill="#ffffff", width=2, capstyle="round")
                 self.create_line(cx - k * 0.15, cy + k * 0.75, cx + k, cy - k * 0.7, fill="#ffffff", width=2, capstyle="round")
 
-            # Текст
             self.create_text(pad + pill_h + 10, cy, text=text, anchor="w", fill=Palette.TEXT, font=("Arial", 10, "bold"))
         except Exception: pass
 
@@ -373,13 +364,14 @@ class StatCard(ctk.CTkFrame):
         self.value_label.pack(anchor="w")
         
         ctk.CTkLabel(inner, text=label.upper(),
-                     font=ctk.CTkFont(size=10, weight="bold", tracking=20), # tracking добавляет разрядку
+                     font=ctk.CTkFont(size=10, weight="bold"),
                      text_color=Palette.TEXT_DIM2).pack(anchor="w", pady=(4, 0))
         
         self.bind("<Enter>", self._hover_in)
         self.bind("<Leave>", self._hover_out)
 
-    def set_value(self, value): self.value_label.configure(text=value)
+    def set_value(self, value): 
+        self.value_label.configure(text=value)
 
     def _hover_in(self, e):
         try: self.configure(border_color=self.accent, border_width=2)
@@ -410,7 +402,6 @@ class RTTGraph(tk.Canvas):
             self.delete("all")
             w, h = self.width, self.height
             
-            # Сетка
             for i in range(1, 4):
                 y = h * i / 4
                 self.create_line(0, y, w, y, fill=Palette.BORDER, dash=(2, 2))
@@ -424,9 +415,7 @@ class RTTGraph(tk.Canvas):
                 points.extend([x, y])
             
             if len(points) >= 4:
-                # Линия графика
                 self.create_line(*points, fill=Palette.ACCENT_GLOW, width=2.5, smooth=True)
-                # Заливка под графиком
                 poly = points + [w, h, 0, h]
                 self.create_polygon(*poly, fill=Palette.ACCENT, outline="", stipple="gray25")
             
@@ -444,7 +433,7 @@ class GradientBackground(tk.Canvas):
         self.enabled = True
         self._animate()
 
-    def start_particles(self, count=30): # Уменьшил кол-во частиц для производительности
+    def start_particles(self, count=30):
         try:
             w = self.winfo_width() or 1200
             h = self.winfo_height() or 760
@@ -469,7 +458,6 @@ class GradientBackground(tk.Canvas):
             h = self.winfo_height() or 760
             self.phase = (self.phase + 0.3) % 360
             
-            # Градиентный фон
             steps = 16
             for i in range(steps):
                 r1, g1, b1 = 9, 9, 11
@@ -481,7 +469,6 @@ class GradientBackground(tk.Canvas):
                 self.create_rectangle(0, h * i / steps, w, h * (i + 1) / steps,
                                       fill=f"#{r:02x}{g:02x}{b:02x}", outline="")
             
-            # Частицы
             if not self.particles: self.start_particles(30)
             for p in self.particles:
                 p["x"] += p["vx"]
@@ -503,7 +490,6 @@ class SidebarButton(ctk.CTkFrame):
         self.command = command
         self.active = active
         
-        # Индикатор активной вкладки
         self.indicator = ctk.CTkFrame(self, width=4, height=24, fg_color=Palette.ACCENT, corner_radius=2)
         self.indicator.pack(side="left", padx=(0, 4))
         if not active: self.indicator.configure(fg_color="transparent")
@@ -547,7 +533,7 @@ class SidebarButton(ctk.CTkFrame):
         if self.command: self.command()
 
 # ============================================================
-# ТЕРМИНАЛ (Улучшен визуал, логика та же)
+# ТЕРМИНАЛ
 # ============================================================
 class Terminal(ctk.CTkFrame):
     def __init__(self, parent, app, **kwargs):
@@ -568,7 +554,6 @@ class Terminal(ctk.CTkFrame):
         self.term_container.grid_columnconfigure(0, weight=1)
         self.term_container.grid_rowconfigure(1, weight=1)
 
-        # Заголовок терминала
         title_bar = ctk.CTkFrame(self.term_container, fg_color=Palette.BG_PANEL,
                                   corner_radius=0, height=42)
         title_bar.grid(row=0, column=0, sticky="ew")
@@ -595,7 +580,6 @@ class Terminal(ctk.CTkFrame):
             command=self._jump_to_end)
         self.live_btn.pack(side="right", padx=12)
 
-        # Поле вывода
         self.terminal = ctk.CTkTextbox(
             self.term_container,
             font=ctk.CTkFont(family="Consolas", size=self.app.config_data.get("font_size", 13)),
@@ -612,7 +596,6 @@ class Terminal(ctk.CTkFrame):
         self.terminal.bind("<Button-3>", lambda e: self._clear_terminal())
         self.terminal.bind("<Button-1>", self._on_terminal_click)
 
-        # Поле ввода
         input_container = ctk.CTkFrame(self.term_container, fg_color=Palette.BG_INPUT,
                                         corner_radius=0, height=56)
         input_container.grid(row=2, column=0, sticky="ew")
@@ -647,14 +630,12 @@ class Terminal(ctk.CTkFrame):
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self.on_enter).pack(side="right", padx=(0, 20), pady=10)
 
-        # Прогресс бар
         self.progress = ctk.CTkProgressBar(self.term_container, height=3,
                                             progress_color=Palette.ACCENT_GLOW)
         self.progress.grid(row=3, column=0, sticky="ew")
         self.progress.grid_remove()
         self.progress.configure(mode="indeterminate")
 
-        # Приветственное сообщение
         self.typing_queue = [
             (f"RedSave Terminal {APP_VERSION}", "header"),
             (f"API: {API_URL}", "info"),
@@ -1043,7 +1024,7 @@ class Terminal(ctk.CTkFrame):
         except Exception: pass
 
 # ============================================================
-# ГЛАВНОЕ ОКНО (Улучшена компоновка и отступы)
+# ГЛАВНОЕ ОКНО
 # ============================================================
 class App(ctk.CTk):
     def __init__(self):
